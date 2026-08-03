@@ -1,0 +1,39 @@
+appId: dev.jpaniagua.oxum-prompt-editor
+productName: Oxum Prompt Editor
+copyright: Copyright (c) 2026 Julio Paniagua
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - out/**
+  - '!**/*.map'
+
+# The tray icon is read at runtime from process.resourcesPath, so it must ship
+# outside the asar bundle.
+extraResources:
+  - from: resources/tray.png
+    to: tray.png
+
+# Per-user install: no admin elevation required, so the app can be installed and
+# updated without touching machine-wide state.
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Oxum Prompt Editor
+
+win:
+  icon: resources/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}

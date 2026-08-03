@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Locked-down CSP: the renderer only ever runs code bundled at build time. No remote
+      origin can be reached, so a pasted prompt cannot cause a network request.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'"
+    />
+    <title>Oxum Prompt Editor</title>
+    <link rel="stylesheet" href="./styles/app.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="titlebar" id="titlebar">
+        <span class="titlebar__title">Prompt</span>
+        <div class="titlebar__actions">
+          <button
+            type="button"
+            id="pin-button"
+            class="icon-button"
+            title="Garder au premier plan"
+            aria-pressed="true"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M9.5 1.5l5 5-1.8.4-2.3 2.3.5 3.6-1.2 1.2-3.1-3.1-3.3 3.3-.7-.7 3.3-3.3-3.1-3.1 1.2-1.2 3.6.5 2.3-2.3z"
+              />
+            </svg>
+          </button>
+          <button type="button" id="hide-button" class="icon-button" title="Masquer (Échap)">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 7.2h10v1.6H3z" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <main class="editor-pane">
+          <div id="editor" class="editor" aria-label="Éditeur de prompt"></div>
+        </main>
+
+        <aside class="side-panel" id="side-panel" hidden>
+          <div class="side-panel__header">
+            <span id="side-panel-title">Réécriture</span>
+            <button type="button" id="panel-close" class="icon-button" title="Fermer">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M4.3 3.3l8.4 8.4-1 1-8.4-8.4zM12.7 4.3l-8.4 8.4-1-1 8.4-8.4z"
+                />
+              </svg>
+            </button>
+          </div>
+          <div class="side-panel__body" id="side-panel-body"></div>
+          <div class="side-panel__footer" id="side-panel-footer"></div>
+        </aside>
+      </div>
+
+      <footer class="toolbar">
+        <div class="toolbar__group">
+          <button type="button" id="rewrite-button" class="button button--primary">
+            Rédiger le prompt
+          </button>
+          <select
+            id="preset-select"
+            class="select"
+            title="Mode de réécriture (Ctrl+Maj+R)"
+            aria-label="Mode de réécriture"
+          ></select>
+        </div>
+        <div class="toolbar__group">
+          <button type="button" id="history-button" class="button" title="Historique (Ctrl+H)">
+            Historique
+          </button>
+          <button type="button" id="new-button" class="button" title="Nouveau prompt (Ctrl+N)">
+            Nouveau
+          </button>
+          <button type="button" id="copy-button" class="button button--accent" title="Copier et masquer (Ctrl+Entrée)">
+            Copier
+          </button>
+        </div>
+      </footer>
+
+      <div class="statusbar">
+        <span id="status-counts">0 car.</span>
+        <span id="status-save" class="statusbar__save"></span>
+        <span id="status-message" class="statusbar__message"></span>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
