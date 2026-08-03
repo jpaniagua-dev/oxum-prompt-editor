@@ -3,7 +3,7 @@ import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-mar
 import { bracketMatching, indentUnit } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
-import { EditorState, type Extension } from '@codemirror/state';
+import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state';
 import {
   EditorView,
   drawSelection,
@@ -13,7 +13,7 @@ import {
   placeholder,
   rectangularSelection,
 } from '@codemirror/view';
-import { editorTheme, markdownHighlighting } from './markdown-theme.js';
+import { editorThemeFor, markdownHighlighting } from './markdown-theme.js';
 
 export interface EditorCallbacks {
   /** Fired on every document change, for autosave and the counters. */
@@ -23,35 +23,43 @@ export interface EditorCallbacks {
 const PLACEHOLDER_TEXT = `Écris ton prompt ici. Entrée = retour à la ligne.
 Ctrl+Entrée copie tout et masque la fenêtre.`;
 
+/** Holds the per-theme extension so it can be swapped without rebuilding the editor. */
+const themeCompartment = new Compartment();
+
+/** Holds the font size so a settings change does not require recreating the state. */
+const fontCompartment = new Compartment();
+
 /**
  * Builds the editor.
  *
- * `basicSetup` is deliberately not used: it brings line numbers, a fold gutter, an
- * autocomplete popup and a lint gutter, all of which belong in a code editor and would turn
- * a writing surface into an IDE. Each extension below is here for a reason.
+ * `basicSetup` is deliberately not used: it brings line numbers, a fold gutter, an autocomplete
+ * popup and a lint gutter, all of which belong in a code editor and would turn a writing surface
+ * into an IDE. Each extension below is here for a reason.
  *
- * @param parent Host element.
- * @param initialText Draft recovered from disk.
- * @param appKeymap App-level bindings (copy, rewrite, hide), passed in with the highest precedence.
+ * @param appKeymap App-level bindings (copy, rewrite, formatting), given the highest precedence.
  */
 export function createEditor(options: {
   parent: HTMLElement;
   initialText: string;
   fontSize: number;
+  dark: boolean;
   appKeymap: Extension;
   callbacks: EditorCallbacks;
 }): EditorView {
-  const view = new EditorView({
+  return new EditorView({
     parent: options.parent,
     state: EditorState.create({
       doc: options.initialText,
       extensions: [
-        // App bindings first: they must win over any default sharing a key.
-        options.appKeymap,
+        // The app's bindings must win over every extension default. Array order is NOT enough:
+        // `searchKeymap` also claims `Mod-Shift-l` (and `Mod-d`, `Mod-f`, `Mod-g`), and it was
+        // observed swallowing the task-list shortcut even with this keymap listed first.
+        // `Prec.highest` is the documented way to state the priority explicitly.
+        Prec.highest(options.appKeymap),
 
-        // Markdown with per-language fenced-block highlighting. `markdownKeymap` provides
-        // list and quote continuation on Enter, which is what makes writing structured
-        // prompts bearable.
+        // Markdown with per-language fenced-block highlighting. `markdownKeymap` provides list
+        // and quote continuation on Enter, which is what makes writing structured prompts
+        // bearable.
         markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: false }),
         keymap.of(markdownKeymap),
 
@@ -69,11 +77,12 @@ export function createEditor(options: {
         search({ top: true }),
         indentUnit.of('  '),
         placeholder(PLACEHOLDER_TEXT),
+        // Required for multi-cursor formatting: without it a state keeps only its main range.
         EditorState.allowMultipleSelections.of(true),
 
-        editorTheme,
+        themeCompartment.of(editorThemeFor(options.dark)),
+        fontCompartment.of(fontSizeTheme(options.fontSize)),
         markdownHighlighting,
-        fontSizeTheme(options.fontSize),
 
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
@@ -83,8 +92,16 @@ export function createEditor(options: {
       ],
     }),
   });
+}
 
-  return view;
+/** Swaps the editor's light/dark base theme in place, preserving document and undo history. */
+export function applyEditorTheme(view: EditorView, dark: boolean): void {
+  view.dispatch({ effects: themeCompartment.reconfigure(editorThemeFor(dark)) });
+}
+
+/** Applies a new font size without touching the document. */
+export function applyEditorFontSize(view: EditorView, fontSize: number): void {
+  view.dispatch({ effects: fontCompartment.reconfigure(fontSizeTheme(fontSize)) });
 }
 
 /** Theme fragment carrying the configurable font size. */
@@ -102,8 +119,8 @@ export function getText(view: EditorView): string {
 /**
  * Replaces the whole document in a single transaction.
  *
- * One transaction means one undo step: whatever this writes, `Ctrl+Z` takes back in full.
- * That property is what makes applying a rewrite safe.
+ * One transaction means one undo step: whatever this writes, `Ctrl+Z` takes back in full. That
+ * property is what makes applying a rewrite safe.
  */
 export function replaceAll(view: EditorView, text: string): void {
   view.dispatch({

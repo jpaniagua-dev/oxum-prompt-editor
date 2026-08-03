@@ -9,6 +9,18 @@
 /** Rewrite presets shipped with the app. User presets extend this set by id. */
 export type PresetId = 'structure' | 'translate-en' | 'condense' | 'spec';
 
+/** What the user picked: an explicit theme, or "follow the OS". */
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+/** What `system` actually resolves to at a given moment. */
+export type ResolvedTheme = 'light' | 'dark';
+
+/** The chosen mode together with the theme currently in effect. */
+export interface ThemeState {
+  readonly mode: ThemeMode;
+  readonly resolved: ResolvedTheme;
+}
+
 /** A rewrite mode: a label for the UI plus the system prompt driving the CLI. */
 export interface RewritePreset {
   readonly id: string;
@@ -24,6 +36,8 @@ export interface RewritePreset {
 export interface AppSettings {
   /** Electron accelerator toggling window visibility, e.g. `Control+Alt+Space`. */
   globalShortcut: string;
+  /** Light, dark, or follow the operating system. */
+  themeMode: ThemeMode;
   /** Keep the window above other windows. Toggled by the pin button. */
   alwaysOnTop: boolean;
   /** Hide the window when it loses focus. Off by default: losing the popup mid-thought is worse than a stray window. */
@@ -75,6 +89,8 @@ export interface BootstrapState {
   readonly presets: RewritePreset[];
   /** True when the draft was recovered from disk rather than starting empty. */
   readonly recovered: boolean;
+  /** Theme resolved by the main process, so the first paint is already correct. */
+  readonly theme: ThemeState;
 }
 
 /* ------------------------------------------------------------------ *
@@ -138,6 +154,10 @@ export const IpcChannel = {
   RewriteEvent: 'rewrite:event',
   /** on: () => void, main asks the renderer to flush its buffer before quitting */
   RequestFlush: 'app:request-flush',
+  /** invoke: (mode: ThemeMode) => ThemeState */
+  ThemeSet: 'theme:set',
+  /** on: (state: ThemeState) => void, also fires when the OS theme changes */
+  ThemeChanged: 'theme:changed',
 } as const;
 
 export type IpcChannelName = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -167,4 +187,6 @@ export interface RendererApi {
   cancelRewrite(requestId: string): Promise<void>;
   onRewriteEvent(listener: (event: RewriteEvent) => void): () => void;
   onRequestFlush(listener: () => void): () => void;
+  setThemeMode(mode: ThemeMode): Promise<ThemeState>;
+  onThemeChanged(listener: (state: ThemeState) => void): () => void;
 }

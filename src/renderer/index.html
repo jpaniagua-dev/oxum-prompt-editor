@@ -16,8 +16,20 @@
   <body>
     <div class="app">
       <header class="titlebar" id="titlebar">
-        <span class="titlebar__title">Prompt</span>
+        <span class="titlebar__title">
+          <span class="titlebar__mark" aria-hidden="true"></span>
+          Prompt
+        </span>
         <div class="titlebar__actions">
+          <button
+            type="button"
+            id="theme-button"
+            class="icon-button"
+            title="Thème (Ctrl+Maj+D)"
+            aria-label="Changer de thème"
+          >
+            <svg id="theme-icon" viewBox="0 0 16 16" aria-hidden="true"></svg>
+          </button>
           <button
             type="button"
             id="pin-button"
@@ -38,6 +50,13 @@
           </button>
         </div>
       </header>
+
+      <div
+        class="format-bar"
+        id="format-bar"
+        role="toolbar"
+        aria-label="Mise en forme Markdown"
+      ></div>
 
       <div class="workspace">
         <main class="editor-pane">

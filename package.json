@@ -1,6 +1,6 @@
 {
   "name": "oxum-prompt-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A popup Markdown editor for writing prompts you can never lose, then pasting them into a terminal agent.",
   "author": "Julio Paniagua",
   "license": "MIT",
@@ -13,7 +13,7 @@
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "npm run typecheck && electron-vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,css,html}\" \"test/**/*.ts\"",
     "test": "vitest run",

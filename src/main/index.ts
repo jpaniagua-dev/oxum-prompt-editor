@@ -9,8 +9,21 @@ import { HistoryStore } from './store/history-store.js';
 import { AppPaths } from './store/paths.js';
 import { SettingsStore } from './store/settings-store.js';
 import { WindowStateStore } from './store/window-state.js';
+import { ThemeController } from './theme.js';
 import { createTray } from './tray.js';
 import { PopupWindow, markQuitting, preloadPath } from './window.js';
+
+/**
+ * Development runs get their own data directory.
+ *
+ * Sharing `userData` with the installed app means sharing the draft file, the history and the
+ * single-instance lock. Two concrete consequences: running from source overwrites real drafts
+ * with test text, and it silently refuses to start whenever the installed app is already open.
+ * Must happen before the lock is requested, since the lock is keyed on this directory.
+ */
+if (!app.isPackaged) {
+  app.setPath('userData', `${app.getPath('userData')}-dev`);
+}
 
 /**
  * A second launch must not open a second editor: it would compete for the same draft file
@@ -57,11 +70,20 @@ async function bootstrap(): Promise<void> {
     popupWindow.browserWindow?.webContents.send(IpcChannel.RewriteEvent, event);
   });
 
+  const themeController = new ThemeController(
+    (state) => popupWindow.browserWindow?.webContents.send(IpcChannel.ThemeChanged, state),
+    (color) => popupWindow.setBackgroundColor(color),
+  );
+  // Apply the stored mode before the window exists, so its very first paint is already the
+  // right colour instead of flashing the default white.
+  themeController.setMode(settings.themeMode);
+
   registerIpcHandlers({
     drafts: draftStore,
     history: historyStore,
     settings: settingsStore,
     rewrites: rewriteService,
+    theme: themeController,
     recovered: () => recovered,
     hideWindow: () => popupWindow.hide(),
     setAlwaysOnTop: (pinned) => popupWindow.setAlwaysOnTop(pinned),
@@ -71,6 +93,7 @@ async function bootstrap(): Promise<void> {
   const window = await popupWindow.create({
     alwaysOnTop: settings.alwaysOnTop,
     preloadPath: preloadPath(),
+    backgroundColor: themeController.backgroundColor(),
   });
   await loadRenderer(window);
 

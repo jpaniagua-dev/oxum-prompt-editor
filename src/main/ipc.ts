@@ -6,7 +6,10 @@ import {
   type HistoryEntry,
   type RewriteRequest,
   type SnapshotReason,
+  type ThemeMode,
+  type ThemeState,
 } from '@shared/contracts.js';
+import type { ThemeController } from './theme.js';
 import { mergePresets, resolvePreset } from './claude/presets.js';
 import type { RewriteService } from './claude/rewrite-service.js';
 import { resetClaudePathCache } from './claude/claude-cli.js';
@@ -19,6 +22,7 @@ export interface IpcDependencies {
   readonly history: HistoryStore;
   readonly settings: SettingsStore;
   readonly rewrites: RewriteService;
+  readonly theme: ThemeController;
   readonly recovered: () => boolean;
   readonly hideWindow: () => void;
   readonly setAlwaysOnTop: (pinned: boolean) => void;
@@ -39,7 +43,15 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
       settings,
       presets: mergePresets(settings.customPresets),
       recovered: deps.recovered(),
+      theme: deps.theme.state(),
     };
+  });
+
+  ipcMain.handle(IpcChannel.ThemeSet, async (_event, mode: unknown): Promise<ThemeState> => {
+    const parsed = asThemeMode(mode);
+    const state = deps.theme.setMode(parsed);
+    await deps.settings.update({ themeMode: parsed });
+    return state;
   });
 
   // Fire-and-forget: the renderer must never wait on a disk write while typing.
@@ -121,6 +133,10 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
   });
 }
 
+function asThemeMode(value: unknown): ThemeMode {
+  return value === 'light' || value === 'dark' || value === 'system' ? value : 'system';
+}
+
 const SNAPSHOT_REASONS: readonly SnapshotReason[] = [
   'copy',
   'new',
@@ -145,6 +161,7 @@ function asSettingsPatch(value: unknown): Partial<AppSettings> {
   const patch: Partial<AppSettings> = {};
 
   if (typeof input.globalShortcut === 'string') patch.globalShortcut = input.globalShortcut;
+  if (input.themeMode !== undefined) patch.themeMode = asThemeMode(input.themeMode);
   if (typeof input.alwaysOnTop === 'boolean') patch.alwaysOnTop = input.alwaysOnTop;
   if (typeof input.hideOnBlur === 'boolean') patch.hideOnBlur = input.hideOnBlur;
   if (typeof input.openAtLogin === 'boolean') patch.openAtLogin = input.openAtLogin;

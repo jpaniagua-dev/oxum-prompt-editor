@@ -27,7 +27,11 @@ export class PopupWindow {
     },
   ) {}
 
-  async create(options: { alwaysOnTop: boolean; preloadPath: string }): Promise<BrowserWindow> {
+  async create(options: {
+    alwaysOnTop: boolean;
+    preloadPath: string;
+    backgroundColor: string;
+  }): Promise<BrowserWindow> {
     const bounds = await this.stateStore.load();
     const position = resolvePosition(bounds);
 
@@ -40,7 +44,9 @@ export class PopupWindow {
       show: false,
       frame: false,
       transparent: false,
-      backgroundColor: '#12141a',
+      // Matches the resolved theme: this is the colour painted in the frame before the page
+      // renders, so a mismatch shows up as a flash every time the popup is summoned.
+      backgroundColor: options.backgroundColor,
       alwaysOnTop: options.alwaysOnTop,
       skipTaskbar: false,
       title: 'Oxum Prompt Editor',
@@ -125,6 +131,11 @@ export class PopupWindow {
 
   setAlwaysOnTop(pinned: boolean): void {
     this.window?.setAlwaysOnTop(pinned);
+  }
+
+  /** Keeps the pre-paint background in step with the active theme. */
+  setBackgroundColor(color: string): void {
+    this.window?.setBackgroundColor(color);
   }
 
   get browserWindow(): BrowserWindow | null {

@@ -8,6 +8,8 @@ import {
   type RewriteEvent,
   type RewriteRequest,
   type SnapshotReason,
+  type ThemeMode,
+  type ThemeState,
 } from '@shared/contracts.js';
 
 /**
@@ -59,6 +61,15 @@ const api: RendererApi = {
     const handler = (): void => listener();
     ipcRenderer.on(IpcChannel.RequestFlush, handler);
     return () => ipcRenderer.off(IpcChannel.RequestFlush, handler);
+  },
+
+  setThemeMode: (mode: ThemeMode): Promise<ThemeState> =>
+    ipcRenderer.invoke(IpcChannel.ThemeSet, mode),
+
+  onThemeChanged: (listener: (state: ThemeState) => void): (() => void) => {
+    const handler = (_event: unknown, payload: ThemeState): void => listener(payload);
+    ipcRenderer.on(IpcChannel.ThemeChanged, handler);
+    return () => ipcRenderer.off(IpcChannel.ThemeChanged, handler);
   },
 };
 

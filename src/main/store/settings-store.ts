@@ -1,10 +1,13 @@
 import { readFile } from 'node:fs/promises';
-import type { AppSettings, RewritePreset, WindowBounds } from '@shared/contracts.js';
+import type { AppSettings, RewritePreset, ThemeMode, WindowBounds } from '@shared/contracts.js';
 import { atomicWriteFile, fileExists } from './atomic-write.js';
 
 /** Defaults chosen so a fresh install is immediately usable with no configuration. */
 export const DEFAULT_SETTINGS: AppSettings = {
   globalShortcut: 'Control+Alt+Space',
+  // Following the OS is the least surprising default: the popup matches whatever the rest of
+  // the desktop is doing without the user configuring anything.
+  themeMode: 'system',
   alwaysOnTop: true,
   // Off on purpose: a popup that vanishes while you pause to think is worse than one
   // that lingers, and this app's whole promise is that text never disappears.
@@ -70,6 +73,7 @@ export function sanitizeSettings(raw: unknown): AppSettings {
 
   return {
     globalShortcut: asString(input.globalShortcut, DEFAULT_SETTINGS.globalShortcut),
+    themeMode: asThemeMode(input.themeMode),
     alwaysOnTop: asBoolean(input.alwaysOnTop, DEFAULT_SETTINGS.alwaysOnTop),
     hideOnBlur: asBoolean(input.hideOnBlur, DEFAULT_SETTINGS.hideOnBlur),
     openAtLogin: asBoolean(input.openAtLogin, DEFAULT_SETTINGS.openAtLogin),
@@ -80,6 +84,12 @@ export function sanitizeSettings(raw: unknown): AppSettings {
     maxBudgetUsd: clamp(asNumber(input.maxBudgetUsd, DEFAULT_SETTINGS.maxBudgetUsd), 0.01, 20),
     customPresets: asPresets(input.customPresets),
   };
+}
+
+function asThemeMode(value: unknown): ThemeMode {
+  return value === 'light' || value === 'dark' || value === 'system'
+    ? value
+    : DEFAULT_SETTINGS.themeMode;
 }
 
 function asString(value: unknown, fallback: string): string {

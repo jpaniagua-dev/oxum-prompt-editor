@@ -5,10 +5,19 @@ import type {
   RewriteErrorEvent,
   RewriteEvent,
   RewritePreset,
+  ThemeMode,
+  ThemeState,
 } from '@shared/contracts.js';
-import { createEditor, focusAtEnd, getText, replaceAll } from './editor/create-editor.js';
+import {
+  applyEditorTheme,
+  createEditor,
+  focusAtEnd,
+  getText,
+  replaceAll,
+} from './editor/create-editor.js';
 import { createAppKeymap } from './editor/keymap.js';
 import { createElement, requireElement } from './ui/dom.js';
+import { mountFormatBar } from './ui/format-bar.js';
 import { SidePanel } from './ui/side-panel.js';
 import { StatusBar } from './ui/status-bar.js';
 import { Toast } from './ui/toast.js';
@@ -24,6 +33,7 @@ class App {
   private editor: EditorView | null = null;
   private settings: AppSettings | null = null;
   private presets: readonly RewritePreset[] = [];
+  private theme: ThemeState = { mode: 'system', resolved: 'light' };
 
   /** Id of the rewrite in flight, used to ignore events from a cancelled one. */
   private activeRewriteId: string | null = null;
@@ -34,12 +44,17 @@ class App {
     this.settings = bootstrap.settings;
     this.presets = bootstrap.presets;
 
+    // Paint the theme before the editor exists: the main process already resolved it, so there
+    // is no moment where the page shows the wrong palette.
+    this.applyTheme(bootstrap.theme);
+
     const initialText = this.recoverText(bootstrap.draft);
 
     this.editor = createEditor({
       parent: requireElement<HTMLDivElement>('editor'),
       initialText,
       fontSize: bootstrap.settings.fontSize,
+      dark: bootstrap.theme.resolved === 'dark',
       appKeymap: createAppKeymap({
         copyAndHide: () => void this.copy({ hide: true }),
         copyOnly: () => void this.copy({ hide: false }),
@@ -47,6 +62,7 @@ class App {
         rewritePick: () => this.focusPresetSelect(),
         newPrompt: () => void this.newPrompt(),
         toggleHistory: () => void this.toggleHistory(),
+        cycleTheme: () => void this.cycleTheme(),
         escape: () => this.handleEscape(),
       }),
       callbacks: {
@@ -60,6 +76,10 @@ class App {
     this.renderPresets();
     this.subscribeToRewrites();
 
+    mountFormatBar(requireElement<HTMLDivElement>('format-bar'), () => this.editor);
+
+    // Fires both on an explicit toggle and when the OS theme changes while in `system` mode.
+    window.api.onThemeChanged((state) => this.applyTheme(state));
     window.api.onRequestFlush(() => this.flushToMain());
     window.addEventListener('beforeunload', () => this.flushToMain());
 
@@ -67,6 +87,56 @@ class App {
       this.statusBar.setMessage('brouillon restauré');
     }
     focusAtEnd(this.editor);
+  }
+
+  /* ----------------------------------------------------------------- theme */
+
+  /**
+   * Reflects a theme resolved by the main process.
+   *
+   * The renderer never decides the theme itself: it would then have to duplicate the
+   * "follow the OS" logic that already lives next to the window background colour, and the two
+   * could disagree for a frame.
+   */
+  private applyTheme(state: ThemeState): void {
+    this.theme = state;
+    document.documentElement.dataset.theme = state.resolved;
+    if (this.editor !== null) {
+      applyEditorTheme(this.editor, state.resolved === 'dark');
+    }
+    this.renderThemeButton();
+  }
+
+  private async cycleTheme(): Promise<void> {
+    const next = nextThemeMode(this.theme.mode);
+    const state = await window.api.setThemeMode(next);
+    this.applyTheme(state);
+    this.statusBar.setMessage(`thème : ${describeThemeMode(state.mode)}`);
+    this.editor?.focus();
+  }
+
+  /** Draws the icon for the current mode: sun, moon, or half-filled circle for "system". */
+  private renderThemeButton(): void {
+    const button = requireElement<HTMLButtonElement>('theme-button');
+    const icon = document.getElementById('theme-icon');
+    button.title = `Thème : ${describeThemeMode(this.theme.mode)} (Ctrl+Maj+D)`;
+
+    if (icon === null) {
+      return;
+    }
+    icon.replaceChildren();
+    const spec = THEME_ICONS[this.theme.mode];
+    const shape = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    shape.setAttribute('d', spec.path);
+    if (spec.paint === 'stroke') {
+      shape.setAttribute('fill', 'none');
+      shape.setAttribute('stroke', 'currentColor');
+      shape.setAttribute('stroke-width', '1.4');
+      shape.setAttribute('stroke-linecap', 'round');
+    } else {
+      shape.setAttribute('fill', 'currentColor');
+    }
+    icon.append(shape);
   }
 
   /* ------------------------------------------------------------ persistence */
@@ -399,6 +469,50 @@ class App {
     requireElement<HTMLButtonElement>('rewrite-button').addEventListener('click', () => {
       void this.startRewrite(this.currentPresetId());
     });
+    requireElement<HTMLButtonElement>('theme-button').addEventListener('click', () => {
+      void this.cycleTheme();
+    });
+  }
+}
+
+/**
+ * Sun for light, moon for dark, half-filled disc for "follow the system".
+ *
+ * The sun is drawn as strokes (its rays are lines, which a fill cannot express) while the moon
+ * and the disc are solid shapes, so each icon declares how it wants to be painted.
+ */
+const THEME_ICONS: Record<ThemeMode, { path: string; paint: 'fill' | 'stroke' }> = {
+  light: {
+    path: 'M8 10.6a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2zM8 3.3V1.6M8 14.4v-1.7M3.5 8H1.8M14.2 8h-1.7M4.8 4.8 3.6 3.6M12.4 12.4l-1.2-1.2M11.2 4.8l1.2-1.2M4.8 11.2l-1.2 1.2',
+    paint: 'stroke',
+  },
+  dark: { path: 'M9.4 1.9a6.2 6.2 0 1 0 4.7 8.9A5 5 0 0 1 9.4 1.9z', paint: 'fill' },
+  system: {
+    path: 'M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zm0 1.6v9.8a4.9 4.9 0 0 1 0-9.8z',
+    paint: 'fill',
+  },
+};
+
+/** Cycles light to dark to system, mirroring the order the main process expects. */
+function nextThemeMode(mode: ThemeMode): ThemeMode {
+  switch (mode) {
+    case 'light':
+      return 'dark';
+    case 'dark':
+      return 'system';
+    case 'system':
+      return 'light';
+  }
+}
+
+function describeThemeMode(mode: ThemeMode): string {
+  switch (mode) {
+    case 'light':
+      return 'clair';
+    case 'dark':
+      return 'sombre';
+    case 'system':
+      return 'système';
   }
 }
 

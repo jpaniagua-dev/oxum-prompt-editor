@@ -37,6 +37,31 @@ pratique.
 - **Chaque preset de réécriture interdit d'inventer du contenu** et renvoie les zones floues dans
   une section `## À préciser`. Sans cette contrainte, le modèle fabrique des exigences absentes
   de l'entrée. Un test le vérifie.
+- **Le dev tourne sur son propre `userData`** (`-dev`), défini avant `requestSingleInstanceLock`.
+  Le supprimer ferait écrire les tests dans les vrais brouillons et empêcherait de lancer les
+  sources quand l'app installée est ouverte.
+- **Aucune mention de l'employeur, de sa charte ou d'un hub interne** dans ce dépôt : il est
+  public. Les tokens de couleur restent nommés `--brand-*`.
+
+## Pièges vérifiés sur les raccourcis et le thème
+
+Ces points ont coûté du temps à diagnostiquer, ne pas les réintroduire :
+
+- **`Prec.highest()` sur le keymap de l'app est obligatoire.** L'ordre dans le tableau
+  d'extensions ne suffit pas : `searchKeymap` réserve `Mod-Shift-l`, `Mod-d`, `Mod-f`, `Mod-g` et
+  gagnait malgré une position antérieure.
+- **Pas de raccourci à base de chiffre avec `Shift`.** La disposition compte : sur un clavier
+  suisse romand, `Ctrl+Shift+7` arrive en `Ctrl+/` et déclenche le basculement de commentaire.
+  Les chiffres sans `Shift` (`Ctrl+1..3`) sont stables.
+- **`Ctrl+Shift+O` n'atteint jamais le renderer** : Chromium le garde pour ses favoris.
+- **`.cm-activeLine` se déclare dans `EditorView.theme`, pas dans la feuille de style.**
+  `highlightActiveLine` fournit une règle `baseTheme` plus spécifique qu'un sélecteur de
+  stylesheet, et son défaut est un lavis bleu hors palette.
+- **Le thème est résolu dans le main**, jamais dans le renderer : le `backgroundColor` de la
+  fenêtre est peint avant le rendu de la page, donc une double source de vérité produit un flash
+  blanc à chaque ouverture en mode sombre.
+- **`EditorState.allowMultipleSelections.of(true)`** est requis, sinon un state ne garde que sa
+  plage principale et le multi-curseur échoue silencieusement (y compris dans les tests).
 
 ## Commandes
 
