@@ -34,9 +34,14 @@ pratique.
   sérialiseur WYSIWYG : il altérerait blocs de code, backticks et indentation.
 - **Le brouillon passe au CLI par stdin**, jamais en argv (limite ~32k sur Windows, plus l'enfer
   du quoting).
-- **Chaque preset de réécriture interdit d'inventer du contenu** et renvoie les zones floues dans
-  une section `## À préciser`. Sans cette contrainte, le modèle fabrique des exigences absentes
-  de l'entrée. Un test le vérifie.
+- **Chaque preset de réécriture interdit d'inventer du contenu** (`CORE_RULES`). Sans cette
+  contrainte, le modèle fabrique des exigences absentes de l'entrée. Elle vaut pour tous les
+  presets, sans exception, et un test le vérifie.
+- **Le renvoi des zones floues vers `## À préciser` ne concerne que la famille `agent-prompt`**
+  (`AGENT_PROMPT_RULES`). Le champ `kind` de `RewritePreset` porte la distinction : `agent-prompt`
+  produit un prompt Markdown pour un agent de code, `text` produit un texte lu par un humain
+  (`Corriger`, `Chat`). Coller une section de questions à la fin d'un texte que l'utilisateur
+  envoie tel quel est un défaut, pas une garantie. Un test vérifie les deux familles.
 - **Le dev tourne sur son propre `userData`** (`-dev`), défini avant `requestSingleInstanceLock`.
   Le supprimer ferait écrire les tests dans les vrais brouillons et empêcherait de lancer les
   sources quand l'app installée est ouverte.

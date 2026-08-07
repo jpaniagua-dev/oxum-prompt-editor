@@ -7,7 +7,17 @@
  */
 
 /** Rewrite presets shipped with the app. User presets extend this set by id. */
-export type PresetId = 'structure' | 'translate-en' | 'condense' | 'spec';
+export type PresetId = 'structure' | 'translate-en' | 'condense' | 'spec' | 'fix' | 'chat';
+
+/**
+ * What a preset *produces*, not what it consumes.
+ *
+ * `agent-prompt` output is handed to a coding agent, so it is Markdown and it may carry a
+ * final "## À préciser" section listing what the draft left ambiguous. `text` output is read
+ * by a human — a corrected paragraph, a chat message — where appending a section of questions
+ * would be a defect rather than a safeguard.
+ */
+export type PresetKind = 'agent-prompt' | 'text';
 
 /** What the user picked: an explicit theme, or "follow the OS". */
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -28,6 +38,8 @@ export interface RewritePreset {
   readonly label: string;
   /** One-line explanation of what this preset does to the draft. */
   readonly hint: string;
+  /** Which family the output belongs to. Drives the picker grouping and the panel actions. */
+  readonly kind: PresetKind;
   /** System prompt handed to `claude --system-prompt`. */
   readonly systemPrompt: string;
 }

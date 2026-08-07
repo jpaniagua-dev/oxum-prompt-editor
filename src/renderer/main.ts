@@ -2,6 +2,7 @@ import type { EditorView } from '@codemirror/view';
 import type {
   AppSettings,
   HistoryEntry,
+  PresetKind,
   RewriteErrorEvent,
   RewriteEvent,
   RewritePreset,
@@ -21,12 +22,14 @@ import { mountFormatBar } from './ui/format-bar.js';
 import { SidePanel } from './ui/side-panel.js';
 import { StatusBar } from './ui/status-bar.js';
 import { Toast } from './ui/toast.js';
+import { TokenBadge } from './ui/token-badge.js';
 
 /** Local mirror key: a last-resort copy in case the main process dies before autosaving. */
 const MIRROR_KEY = 'oxum.draft.mirror';
 
 class App {
   private readonly statusBar = new StatusBar();
+  private readonly tokenBadge = new TokenBadge();
   private readonly toast = new Toast();
   private readonly panel = new SidePanel();
 
@@ -37,6 +40,8 @@ class App {
 
   /** Id of the rewrite in flight, used to ignore events from a cancelled one. */
   private activeRewriteId: string | null = null;
+  /** Family of the preset in flight, which decides how the result panel presents its actions. */
+  private activeRewriteKind: PresetKind = 'agent-prompt';
   private rewriteBuffer = '';
 
   async start(): Promise<void> {
@@ -71,6 +76,7 @@ class App {
     });
 
     this.statusBar.updateCounts(initialText);
+    this.tokenBadge.update(initialText);
     this.statusBar.markSaved();
     this.bindChrome();
     this.renderPresets();
@@ -166,6 +172,7 @@ class App {
       /* Quota exceeded on an enormous draft: the disk autosave still covers us. */
     }
     this.statusBar.updateCounts(text);
+    this.tokenBadge.update(text);
     this.statusBar.markPending();
     // The main process debounce is 300ms; report saved slightly after it fires.
     window.setTimeout(() => this.statusBar.markSaved(), 400);
@@ -237,14 +244,32 @@ class App {
     select.click();
   }
 
+  /**
+   * Fills the picker, one `<optgroup>` per preset family.
+   *
+   * The two families answer different questions ("reshape my prompt" versus "give me a text to
+   * send"), and a flat list of six entries hid that. A group with no member is skipped rather
+   * than rendered empty, so a configuration that drops a whole family leaves no dangling header.
+   */
   private renderPresets(): void {
     const select = requireElement<HTMLSelectElement>('preset-select');
     select.replaceChildren();
-    for (const preset of this.presets) {
-      const option = createElement('option', { text: preset.label, title: preset.hint });
-      option.value = preset.id;
-      select.append(option);
+
+    for (const [kind, groupLabel] of PRESET_GROUPS) {
+      const members = this.presets.filter((preset) => preset.kind === kind);
+      if (members.length === 0) {
+        continue;
+      }
+      const group = document.createElement('optgroup');
+      group.label = groupLabel;
+      for (const preset of members) {
+        const option = createElement('option', { text: preset.label, title: preset.hint });
+        option.value = preset.id;
+        group.append(option);
+      }
+      select.append(group);
     }
+
     const preferred = this.settings?.defaultPresetId ?? '';
     if (this.presets.some((preset) => preset.id === preferred)) {
       select.value = preferred;
@@ -273,12 +298,13 @@ class App {
     this.rewriteBuffer = '';
 
     const preset = this.presets.find((candidate) => candidate.id === presetId);
+    this.activeRewriteKind = preset?.kind ?? 'agent-prompt';
     this.panel.open('rewrite', `Réécriture · ${preset?.label ?? presetId}`, () => {
       if (this.activeRewriteId !== null) {
         void window.api.cancelRewrite(this.activeRewriteId);
       }
     });
-    this.panel.setText('');
+    this.panel.setPending('Rédaction en cours…');
     this.panel.setStreaming(true);
     this.panel.setActions([
       { label: 'Annuler', onClick: () => void window.api.cancelRewrite(requestId) },
@@ -319,11 +345,29 @@ class App {
     const cost = costUsd === null ? '' : ` · ${costUsd.toFixed(4)} $`;
     this.statusBar.setMessage(`réécriture terminée en ${(durationMs / 1000).toFixed(1)}s${cost}`);
 
-    this.panel.setActions([
-      { label: 'Appliquer', variant: 'primary', title: 'Remplace le texte (Ctrl+Z pour revenir)', onClick: () => void this.applyRewrite(text) },
-      { label: 'Copier', variant: 'accent', onClick: () => void this.copyRewrite(text) },
-      { label: 'Relancer', onClick: () => void this.retryRewrite() },
-    ]);
+    // A `text` result is meant to be sent somewhere else, not to become the draft, so copying
+    // is the primary action there. Applying stays available: it is snapshotted and undoable.
+    const apply = {
+      label: 'Appliquer',
+      title: 'Remplace le texte (Ctrl+Z pour revenir)',
+      onClick: () => void this.applyRewrite(text),
+    };
+    const copy = { label: 'Copier', onClick: () => void this.copyRewrite(text) };
+    const retry = { label: 'Relancer', onClick: () => void this.retryRewrite() };
+
+    this.panel.setActions(
+      this.activeRewriteKind === 'text'
+        ? [
+            { ...copy, variant: 'primary' },
+            { ...apply, variant: 'accent' },
+            retry,
+          ]
+        : [
+            { ...apply, variant: 'primary' },
+            { ...copy, variant: 'accent' },
+            retry,
+          ],
+    );
   }
 
   private failRewrite(reason: RewriteErrorEvent['reason'], message: string): void {
@@ -474,6 +518,12 @@ class App {
     });
   }
 }
+
+/** Picker groups, in display order. The label says what the preset *produces*. */
+const PRESET_GROUPS: readonly (readonly [PresetKind, string])[] = [
+  ['agent-prompt', 'Prompt'],
+  ['text', 'Texte'],
+];
 
 /**
  * Sun for light, moon for dark, half-filled disc for "follow the system".

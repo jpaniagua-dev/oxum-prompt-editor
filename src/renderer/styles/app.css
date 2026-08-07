@@ -185,6 +185,7 @@ body {
 }
 
 .editor-pane {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -195,6 +196,27 @@ body {
   min-width: 0;
   overflow: hidden;
   user-select: text;
+}
+
+/* The token estimate floats over the text rather than sitting in the status bar, where it was
+   too faint to read while typing. `pointer-events: none` keeps it out of the way: clicking its
+   spot still places the caret in the line underneath. */
+.token-badge {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  padding: 1px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.token-badge[hidden] {
+  display: none;
 }
 
 /* -------------------------------------------------------------- side panel */
@@ -245,9 +267,59 @@ body {
   animation: blink 1s steps(2, start) infinite;
 }
 
+/* The caret is a *streaming* affordance: it reads as "text is arriving" only when it trails
+   text. While the placeholder is up there is nothing for it to trail, and a caret parked next
+   to a spinner says two contradictory things at once. */
+.side-panel__body--streaming:has(.side-panel__pending)::after {
+  content: none;
+}
+
 @keyframes blink {
   to {
     visibility: hidden;
+  }
+}
+
+/* ---------------------------------------------------------- pending state */
+
+.side-panel__pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.side-panel__spinner {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Elapsed seconds, not decoration: they are what separates a slow start from a hang. */
+.side-panel__elapsed {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-panel__spinner {
+    animation: none;
+  }
+
+  .side-panel__body--streaming::after {
+    animation: none;
   }
 }
 
@@ -440,8 +512,10 @@ body {
   outline: none;
 }
 
+/* The generous bottom padding reserves room for the token badge, so the last line of the
+   document can never end up hidden underneath it. */
 .cm-scroller {
-  padding: 10px 14px 14px;
+  padding: 10px 14px 30px;
   line-height: 1.6;
 }
 

@@ -21,6 +21,8 @@ export class SidePanel {
   private readonly closeButton = requireElement<HTMLButtonElement>('panel-close');
   private mode: 'hidden' | 'rewrite' | 'history' = 'hidden';
   private onClose: (() => void) | null = null;
+  /** Ticker of the pending placeholder, non-null only while one is displayed. */
+  private pendingTicker: number | null = null;
 
   constructor() {
     this.closeButton.addEventListener('click', () => this.close());
@@ -39,6 +41,7 @@ export class SidePanel {
     this.mode = mode;
     this.title.textContent = title;
     this.onClose = onClose ?? null;
+    this.stopPending();
     clearChildren(this.body);
     clearChildren(this.footer);
     this.body.classList.remove('side-panel__body--streaming');
@@ -53,34 +56,88 @@ export class SidePanel {
     this.mode = 'hidden';
     this.onClose = null;
     this.root.hidden = true;
+    this.stopPending();
     clearChildren(this.body);
     clearChildren(this.footer);
     callback?.();
   }
 
+  /**
+   * Shows that work has started but produced nothing yet.
+   *
+   * Streaming already has its own affordance, the blinking caret trailing the text. Before the
+   * first chunk there is no text for it to trail, so the panel sat empty for the seconds the CLI
+   * spends starting up and authenticating — indistinguishable from a hang. The elapsed counter
+   * is the part that makes the difference: a spinner alone cannot say "slow" versus "stuck".
+   */
+  setPending(label: string): void {
+    this.stopPending();
+    clearChildren(this.body);
+
+    const elapsed = createElement('span', { className: 'side-panel__elapsed', text: '0s' });
+    const startedAt = Date.now();
+    const pending = createElement('div', { className: 'side-panel__pending' });
+    pending.append(
+      createElement('span', { className: 'side-panel__spinner' }),
+      createElement('span', { text: label }),
+      elapsed,
+    );
+    this.body.append(pending);
+
+    this.pendingTicker = window.setInterval(() => {
+      elapsed.textContent = `${Math.round((Date.now() - startedAt) / 1000)}s`;
+    }, 1000);
+  }
+
   /** Replaces the body with plain text, safe for arbitrary CLI output. */
   setText(text: string): void {
+    this.stopPending();
     this.body.textContent = text;
   }
 
   /** Appends streamed text and keeps the view pinned to the bottom. */
   appendText(text: string): void {
+    // The first chunk is what retires the placeholder. The panel owns that so callers never
+    // have to remember it, and so a stray ticker cannot outlive what it was counting for.
+    if (this.pendingTicker !== null) {
+      this.stopPending();
+      clearChildren(this.body);
+    }
     this.body.append(document.createTextNode(text));
     this.body.scrollTop = this.body.scrollHeight;
   }
 
   setStreaming(streaming: boolean): void {
+    if (!streaming) {
+      this.stopPending();
+    }
     this.body.classList.toggle('side-panel__body--streaming', streaming);
   }
 
   /** Shows an error in place of the content. */
   setError(message: string): void {
+    this.stopPending();
     clearChildren(this.body);
     this.body.append(createElement('div', { className: 'side-panel__error', text: message }));
   }
 
+  /**
+   * Stops the elapsed-time ticker.
+   *
+   * Every exit from the pending state routes through here. The window is hidden rather than
+   * destroyed when the user presses Escape, so an interval left running would tick for the
+   * whole session.
+   */
+  private stopPending(): void {
+    if (this.pendingTicker !== null) {
+      window.clearInterval(this.pendingTicker);
+      this.pendingTicker = null;
+    }
+  }
+
   /** Replaces the body with arbitrary nodes, used by the history list. */
   setContent(...nodes: readonly Node[]): void {
+    this.stopPending();
     clearChildren(this.body);
     this.body.append(...nodes);
   }

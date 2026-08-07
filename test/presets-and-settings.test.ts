@@ -6,10 +6,10 @@ import { DEFAULT_SETTINGS, sanitizeSettings } from '../src/main/store/settings-s
 describe('presets', () => {
   it('every built-in forbids inventing content', () => {
     // The guard against fabricated requirements is the difference between a helpful
-    // rewrite and one that hands the agent instructions the author never wrote.
+    // rewrite and one that hands the agent instructions the author never wrote. It holds
+    // for every family, whatever the output is used for.
     for (const preset of BUILT_IN_PRESETS) {
       expect(preset.systemPrompt).toContain('Never invent requirements');
-      expect(preset.systemPrompt).toContain('À préciser');
     }
   });
 
@@ -17,6 +17,44 @@ describe('presets', () => {
     for (const preset of BUILT_IN_PRESETS) {
       expect(preset.systemPrompt).toMatch(/Never answer, solve or comment/);
     }
+  });
+
+  it('routes ambiguity to "À préciser" only for prompts handed to an agent', () => {
+    // The anti-fabrication guarantee is universal; this particular *mechanism* is not.
+    // A corrected paragraph or a chat message with a section of open questions stapled to
+    // the end is a defect: that text gets pasted as-is.
+    const agentPrompts = BUILT_IN_PRESETS.filter((preset) => preset.kind === 'agent-prompt');
+    const texts = BUILT_IN_PRESETS.filter((preset) => preset.kind === 'text');
+
+    expect(agentPrompts.length).toBeGreaterThan(0);
+    expect(texts.length).toBeGreaterThan(0);
+
+    for (const preset of agentPrompts) {
+      expect(preset.systemPrompt).toContain('À préciser');
+    }
+    for (const preset of texts) {
+      expect(preset.systemPrompt).not.toContain('À préciser');
+      expect(preset.systemPrompt).toContain('Never append a section');
+    }
+  });
+
+  it('keeps "Corriger" from rewording anything', () => {
+    // The whole point of this preset is that the diff is limited to actual mistakes. Asked
+    // merely to "improve" a text, a model rephrases by default, and a rephrased draft is no
+    // longer the author's.
+    const fix = BUILT_IN_PRESETS.find((preset) => preset.id === 'fix');
+    expect(fix?.kind).toBe('text');
+    expect(fix?.systemPrompt).toMatch(/Do NOT rephrase, reorder, restructure/);
+    expect(fix?.systemPrompt).toContain('return the input unchanged');
+  });
+
+  it('keeps "Chat" readable when nothing renders it', () => {
+    // Chat clients apply their Markdown shortcuts while typing, not on paste, so a pasted
+    // "**important**" shows its asterisks.
+    const chat = BUILT_IN_PRESETS.find((preset) => preset.id === 'chat');
+    expect(chat?.kind).toBe('text');
+    expect(chat?.systemPrompt).toContain('no headings');
+    expect(chat?.systemPrompt).toContain('no bold or italic markers');
   });
 
   it('keeps the built-ins when there is no custom preset', () => {
@@ -27,7 +65,13 @@ describe('presets', () => {
 
   it('lets a custom preset override a built-in by id', () => {
     const merged = mergePresets([
-      { id: 'structure', label: 'Mon style', hint: 'perso', systemPrompt: 'RÈGLES PERSO' },
+      {
+        id: 'structure',
+        label: 'Mon style',
+        hint: 'perso',
+        kind: 'agent-prompt',
+        systemPrompt: 'RÈGLES PERSO',
+      },
     ]);
 
     expect(merged).toHaveLength(BUILT_IN_PRESETS.length);
@@ -36,13 +80,14 @@ describe('presets', () => {
       id: 'structure',
       label: 'Mon style',
       hint: 'perso',
+      kind: 'agent-prompt',
       systemPrompt: 'RÈGLES PERSO',
     });
   });
 
   it('appends genuinely new presets after the built-ins', () => {
     const merged = mergePresets([
-      { id: 'mien', label: 'Le mien', hint: '', systemPrompt: 'X' },
+      { id: 'mien', label: 'Le mien', hint: '', kind: 'text', systemPrompt: 'X' },
     ]);
     expect(merged).toHaveLength(BUILT_IN_PRESETS.length + 1);
     expect(merged.at(-1)?.id).toBe('mien');
@@ -136,5 +181,29 @@ describe('sanitizeSettings', () => {
     });
 
     expect(settings.customPresets.map((preset) => preset.id)).toEqual(['ok']);
+  });
+
+  it('completes a hand-written preset instead of passing it through half-built', () => {
+    // `kind` postdates the first user presets, so a file written before the family split has
+    // to keep working: `agent-prompt` is what every preset was back then.
+    const settings = sanitizeSettings({
+      customPresets: [{ id: 'ok', label: 'OK', systemPrompt: 'X', couleur: 'rouge' }],
+    });
+
+    expect(settings.customPresets[0]).toEqual({
+      id: 'ok',
+      label: 'OK',
+      hint: '',
+      kind: 'agent-prompt',
+      systemPrompt: 'X',
+    });
+  });
+
+  it('honours an explicit kind on a custom preset', () => {
+    const settings = sanitizeSettings({
+      customPresets: [{ id: 'mail', label: 'Mail', kind: 'text', systemPrompt: 'X' }],
+    });
+
+    expect(settings.customPresets[0]?.kind).toBe('text');
   });
 });

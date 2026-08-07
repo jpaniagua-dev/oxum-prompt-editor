@@ -108,21 +108,41 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/**
+ * Normalises user presets into complete `RewritePreset` objects.
+ *
+ * A hand-written entry may omit `hint` or `kind`, and may carry keys we know nothing about.
+ * Rebuilding the object rather than filtering it keeps those unknown keys out of the file on
+ * the next write, and guarantees the rest of the app never meets a half-built preset.
+ * `kind` defaults to `agent-prompt`: that is what every preset was before the family split.
+ */
 function asPresets(value: unknown): RewritePreset[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter((entry): entry is RewritePreset => {
+  const presets: RewritePreset[] = [];
+  for (const entry of value) {
     if (typeof entry !== 'object' || entry === null) {
-      return false;
+      continue;
     }
     const candidate = entry as Record<string, unknown>;
-    return (
-      typeof candidate.id === 'string' &&
-      candidate.id.length > 0 &&
-      typeof candidate.label === 'string' &&
-      typeof candidate.systemPrompt === 'string' &&
-      candidate.systemPrompt.length > 0
-    );
-  });
+    const { id, label, systemPrompt } = candidate;
+    if (
+      typeof id !== 'string' ||
+      id.length === 0 ||
+      typeof label !== 'string' ||
+      typeof systemPrompt !== 'string' ||
+      systemPrompt.length === 0
+    ) {
+      continue;
+    }
+    presets.push({
+      id,
+      label,
+      hint: asString(candidate.hint, ''),
+      kind: candidate.kind === 'text' ? 'text' : 'agent-prompt',
+      systemPrompt,
+    });
+  }
+  return presets;
 }

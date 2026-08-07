@@ -94,11 +94,18 @@ The result appears in a side panel, never straight into your buffer. `Appliquer`
 original first and replaces the text in a single transaction, so one `Ctrl+Z` brings your own
 wording back verbatim.
 
-Every preset forbids the model from inventing content: unknowns are collected under a final
-`## À préciser` section instead of being filled in with plausible guesses. Without that
-constraint, rewriting reliably adds requirements you never wrote.
+Every preset forbids the model from inventing content. Without that constraint, rewriting
+reliably adds requirements you never wrote.
 
-Built-in presets: **Structurer**, **Traduire (EN)**, **Condenser**, **Ticket**.
+Presets come in two families, shown as two groups in the picker:
+
+- **Prompt** — the result is a Markdown prompt for a coding agent, and whatever the draft left
+  ambiguous is collected under a final `## À préciser` section instead of being filled in with
+  plausible guesses. Built-ins: **Structurer**, **Traduire (EN)**, **Condenser**, **Ticket**.
+- **Texte** — the result is read by a human, so nothing is ever appended to it. Built-ins:
+  **Corriger** (spelling, grammar and typography, and strictly nothing else) and **Chat** (a short
+  message for a team chat client, written as plain text since chat clients do not render pasted
+  Markdown). For these two, `Copier` is the primary action rather than `Appliquer`.
 
 The CLI is invoked with `--tools ""` (no filesystem or network access), `--safe-mode` (ignores
 your `CLAUDE.md`, hooks, MCP servers and skills, so results are fast and reproducible),
@@ -122,7 +129,7 @@ values fall back to defaults rather than breaking the app.
 | `claudePath` | `""` | Empty means auto-detect: PATH, then `%USERPROFILE%\.local\bin\claude.exe` |
 | `defaultPresetId` | `structure` | |
 | `maxBudgetUsd` | `0.5` | Per rewrite |
-| `customPresets` | `[]` | Reusing a built-in `id` overrides it |
+| `customPresets` | `[]` | Reusing a built-in `id` overrides it. Each entry takes `id`, `label`, `hint`, `systemPrompt` and an optional `kind` (`agent-prompt`, the default, or `text`) |
 
 ## Theming
 
@@ -147,7 +154,7 @@ own lighter tints. Same family, weight appropriate to the background.
 src/shared/contracts.ts   Types for every main <-> renderer channel: the single source of truth
 src/main/                 Window, tray, global shortcut, theme, stores, Claude CLI integration
 src/preload/              contextBridge: one narrow typed API, no generic IPC passthrough
-src/renderer/             CodeMirror 6 editor, format bar, side panel, status bar
+src/renderer/             CodeMirror 6 editor, format bar, side panel, status bar, token badge
 src/renderer/styles/      tokens.css holds both palettes; app.css only references tokens
 ```
 
@@ -167,7 +174,8 @@ remote content. It reaches the filesystem only through the channels declared in 
 
 ```bash
 npm test         # Vitest: atomic writes, autosave, history pruning, stream parsing, settings,
-                 # and every formatting command against a headless EditorState
+                 # preset families, token estimation, and every formatting command against a
+                 # headless EditorState
 npm run lint
 npm run typecheck
 ```
