@@ -82,6 +82,10 @@ npm run dist       # installeur NSIS per-user + portable dans release/
 
 - TypeScript strict, `noUncheckedIndexedAccess`, aucun `any`.
 - Code et commentaires **en anglais**. Textes affichés à l'utilisateur en **français**.
+- **Messages de commit en anglais**, au présent et à l'impératif (`Add`, `Fix`, `Refactor`),
+  première lettre en majuscule, pas de point final, pas d'emoji. L'historique a été réécrit le
+  2026-08-12 pour appliquer cette règle : ne pas se fier au style d'un vieux commit pour la
+  contredire.
 - Les commentaires expliquent le *pourquoi* d'un choix non évident, pas la paraphrase du code.
 - Tests : couvrir les unités pures (écriture atomique, parsing du flux, pruning, sanitisation).
   Pas de e2e Electron.
