@@ -7,15 +7,23 @@
  */
 
 /** Rewrite presets shipped with the app. User presets extend this set by id. */
-export type PresetId = 'structure' | 'translate-en' | 'condense' | 'spec' | 'fix' | 'chat';
+export type PresetId =
+  | 'structure'
+  | 'translate-en'
+  | 'condense'
+  | 'spec'
+  | 'fix'
+  | 'formal'
+  | 'chat';
 
 /**
  * What a preset *produces*, not what it consumes.
  *
- * `agent-prompt` output is handed to a coding agent, so it is Markdown and it may carry a
- * final "## À préciser" section listing what the draft left ambiguous. `text` output is read
- * by a human — a corrected paragraph, a chat message — where appending a section of questions
- * would be a defect rather than a safeguard.
+ * `agent-prompt` output is handed to a coding agent, so it is Markdown built around headings,
+ * bullets and code fences. `text` output is read by a human, a corrected paragraph or a chat
+ * message, where Markdown markers would show up as literal characters.
+ *
+ * Neither family ever appends a section the author did not write.
  */
 export type PresetKind = 'agent-prompt' | 'text';
 
@@ -58,14 +66,32 @@ export interface AppSettings {
   openAtLogin: boolean;
   /** Editor font size in px. */
   fontSize: number;
-  /** Model alias or full name passed to `claude --model`. */
+  /** Model alias or full name passed to `claude --model`, for any action with no override. */
   model: string;
+  /**
+   * Per-action model override, keyed by preset id. An empty or absent entry means "use `model`".
+   *
+   * The right model depends on the task: proofreading is mechanical and cheap, restructuring a
+   * prompt benefits from a stronger one. Keyed by id rather than carried on `RewritePreset` so
+   * that retuning one built-in does not mean redeclaring the whole preset in `settings.json`.
+   */
+  modelByPresetId: Record<string, string>;
   /** Absolute path to the Claude CLI. Empty means "resolve automatically". */
   claudePath: string;
   /** Default preset used by the Rewrite button and its shortcut. */
   defaultPresetId: string;
   /** Hard spend cap per rewrite, passed to `claude --max-budget-usd`. */
   maxBudgetUsd: number;
+  /**
+   * Absolute directory holding the notes. Empty means the default under `userData`.
+   *
+   * Configurable because saved Markdown is worth syncing or versioning, which `%APPDATA%` is not
+   * the place for. A relative path is rejected in favour of the default rather than resolved
+   * against an ambiguous working directory.
+   */
+  notesDirectory: string;
+  /** Absolute directory holding the prompt library. Same rules as `notesDirectory`. */
+  promptsDirectory: string;
   /** User-defined or overridden presets, merged over the built-ins by id. */
   customPresets: RewritePreset[];
 }
@@ -94,6 +120,33 @@ export interface HistoryEntry {
 
 export type SnapshotReason = 'copy' | 'new' | 'rewrite' | 'restore' | 'quit' | 'manual';
 
+/**
+ * The two folders of saved Markdown, kept apart because they answer different needs.
+ *
+ * `notes` holds working documents: saved, reopened in the editor, worked on again. `prompts` holds
+ * the reusable collection, which is copied to the clipboard rather than loaded, so grabbing one
+ * never costs whatever is currently in the editor. Same storage mechanics, different folders and
+ * different actions in the panel.
+ */
+export type LibraryId = 'notes' | 'prompts';
+
+/**
+ * One saved document, in either library.
+ *
+ * Unlike a {@link HistoryEntry}, it is deliberate: the user asked for it, it is named after its
+ * own first line, and it is expected to still be there in six months. Nothing prunes it.
+ */
+export interface LibraryEntry {
+  /** File name, e.g. `revue-de-code-angular.md`. Stable id, and what shows up in the folder. */
+  readonly id: string;
+  /** First meaningful line of the content. */
+  readonly title: string;
+  /** ISO timestamp of the last write. */
+  readonly updatedAt: string;
+  /** Character count. */
+  readonly size: number;
+}
+
 /** Payload restored at startup so the renderer can rebuild its exact previous state. */
 export interface BootstrapState {
   readonly draft: string;
@@ -103,6 +156,10 @@ export interface BootstrapState {
   readonly recovered: boolean;
   /** Theme resolved by the main process, so the first paint is already correct. */
   readonly theme: ThemeState;
+  /** Defaults per library, shown as the placeholder of each directory field. */
+  readonly defaultDirectories: Readonly<Record<LibraryId, string>>;
+  /** Shown in the status bar, so what is running is answerable without leaving the window. */
+  readonly appVersion: string;
 }
 
 /* ------------------------------------------------------------------ *
@@ -150,10 +207,37 @@ export const IpcChannel = {
   HistoryList: 'history:list',
   /** invoke: (id: string) => string */
   HistoryRead: 'history:read',
+  /** invoke: () => number, deletes every snapshot and returns how many went */
+  HistoryClear: 'history:clear',
+  /*
+   * The library channels each take a `LibraryId` first. One typed discriminator beats five more
+   * channel names: the renderer still cannot name an arbitrary destination, since the id is
+   * checked against a fixed map in the main process.
+   */
+  /** invoke: (library: LibraryId) => LibraryEntry[] */
+  LibraryList: 'library:list',
+  /** invoke: (library: LibraryId, id: string) => string */
+  LibraryRead: 'library:read',
+  /** invoke: (library: LibraryId, text: string) => LibraryEntry, named after its first line */
+  LibrarySave: 'library:save',
+  /** invoke: (library: LibraryId, id: string, text: string) => LibraryEntry */
+  LibraryOverwrite: 'library:overwrite',
+  /** invoke: (library: LibraryId, id: string) => void */
+  LibraryDelete: 'library:delete',
+  /** invoke: (current: string) => string | null, native folder picker */
+  PickDirectory: 'dialog:pick-directory',
   /** invoke: (text: string) => void, writes the clipboard from the main process */
   ClipboardWrite: 'clipboard:write',
   /** send: () => void */
   WindowHide: 'window:hide',
+  /**
+   * send: () => void, the same deliberate exit as the tray menu.
+   *
+   * Routed to the main process rather than closing the window: quitting has to flush the draft,
+   * take a final snapshot and save the bounds first. A renderer-side `window.close()` would skip
+   * all three.
+   */
+  AppQuit: 'app:quit',
   /** invoke: (pinned: boolean) => void */
   WindowSetAlwaysOnTop: 'window:set-always-on-top',
   /** invoke: (patch: Partial<AppSettings>) => AppSettings */
@@ -191,8 +275,16 @@ export interface RendererApi {
   snapshotDraft(text: string, reason: SnapshotReason): Promise<void>;
   listHistory(): Promise<HistoryEntry[]>;
   readHistory(id: string): Promise<string>;
+  clearHistory(): Promise<number>;
+  listLibrary(library: LibraryId): Promise<LibraryEntry[]>;
+  readLibraryEntry(library: LibraryId, id: string): Promise<string>;
+  saveToLibrary(library: LibraryId, text: string): Promise<LibraryEntry>;
+  overwriteLibraryEntry(library: LibraryId, id: string, text: string): Promise<LibraryEntry>;
+  deleteLibraryEntry(library: LibraryId, id: string): Promise<void>;
+  pickDirectory(current: string): Promise<string | null>;
   writeClipboard(text: string): Promise<void>;
   hideWindow(): void;
+  quitApp(): void;
   setAlwaysOnTop(pinned: boolean): Promise<void>;
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
   startRewrite(request: RewriteRequest): Promise<void>;

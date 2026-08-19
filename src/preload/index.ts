@@ -4,6 +4,8 @@ import {
   type AppSettings,
   type BootstrapState,
   type HistoryEntry,
+  type LibraryEntry,
+  type LibraryId,
   type RendererApi,
   type RewriteEvent,
   type RewriteRequest,
@@ -32,11 +34,35 @@ const api: RendererApi = {
 
   readHistory: (id: string): Promise<string> => ipcRenderer.invoke(IpcChannel.HistoryRead, id),
 
+  clearHistory: (): Promise<number> => ipcRenderer.invoke(IpcChannel.HistoryClear),
+
+  listLibrary: (library: LibraryId): Promise<LibraryEntry[]> =>
+    ipcRenderer.invoke(IpcChannel.LibraryList, library),
+
+  readLibraryEntry: (library: LibraryId, id: string): Promise<string> =>
+    ipcRenderer.invoke(IpcChannel.LibraryRead, library, id),
+
+  saveToLibrary: (library: LibraryId, text: string): Promise<LibraryEntry> =>
+    ipcRenderer.invoke(IpcChannel.LibrarySave, library, text),
+
+  overwriteLibraryEntry: (library: LibraryId, id: string, text: string): Promise<LibraryEntry> =>
+    ipcRenderer.invoke(IpcChannel.LibraryOverwrite, library, id, text),
+
+  deleteLibraryEntry: (library: LibraryId, id: string): Promise<void> =>
+    ipcRenderer.invoke(IpcChannel.LibraryDelete, library, id),
+
+  pickDirectory: (current: string): Promise<string | null> =>
+    ipcRenderer.invoke(IpcChannel.PickDirectory, current),
+
   writeClipboard: (text: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannel.ClipboardWrite, text),
 
   hideWindow: (): void => {
     ipcRenderer.send(IpcChannel.WindowHide);
+  },
+
+  quitApp: (): void => {
+    ipcRenderer.send(IpcChannel.AppQuit);
   },
 
   setAlwaysOnTop: (pinned: boolean): Promise<void> =>

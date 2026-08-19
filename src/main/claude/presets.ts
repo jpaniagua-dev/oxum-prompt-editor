@@ -21,13 +21,27 @@ Absolute rules:
 /**
  * Addendum for the presets whose output is handed to a coding agent.
  *
- * The "## À préciser" contract only makes sense here. A corrected paragraph or a chat message
- * with a section of open questions stapled to the end is a defect: the author pastes that text
- * as-is. So the anti-fabrication guarantee stays universal while its *mechanism* is per family.
+ * This family used to collect whatever the draft left ambiguous under a final "## À préciser"
+ * section. It was dropped because the section showed up on every run, including on drafts that
+ * were not ambiguous at all, and the author then had to delete it before using the prompt.
+ *
+ * The interdiction that replaced it is not decorative. Simply *removing* the instruction leaves
+ * the model free to editorialise, and it does: it appends a "Note: the following points remain
+ * unclear" of its own accord. Saying nothing is a behaviour that has to be asked for explicitly.
  */
 const AGENT_PROMPT_RULES = `The result is a prompt for a coding agent, written in Markdown.
-- If something is ambiguous or missing, do NOT fill the gap. List it under a final "## À préciser" section as a short question.
-- Use headings, bullets and code fences wherever they carry structure.`;
+- Use headings, bullets and code fences wherever they carry structure.
+- Never append a section of questions, remarks, notes, caveats or open points, under any heading. A gap in the input stays a gap in the output: leave it exactly as the author wrote it and say nothing about it.`;
+
+/**
+ * Shared by the two presets that deliberately change the register.
+ *
+ * Register is a matter of style. "tu" versus "vous" is a fact about the relationship between the
+ * author and the reader, which the draft alone does not reveal: asked for a formal tone, a model
+ * switches a French text to "vous" unless told not to, and that silently changes who the author
+ * appears to be addressing. Same reasoning for greetings and sign-offs.
+ */
+const REGISTER_RULES = `Never change how the reader is addressed: keep "tu" as "tu" and "vous" as "vous", along with the agreement and possessives that follow. Never add or remove a greeting or a sign-off. Never append a section of any kind.`;
 
 /** Presets shipped with the app. Deliberately generic and free of any employer context. */
 export const BUILT_IN_PRESETS: readonly RewritePreset[] = [
@@ -87,8 +101,8 @@ Preset: TICKET.
 Reshape the draft into a development ticket: a one-line title on the first line as an H1,
 then "## Description", then "## Critères d'acceptation" as a checklist. Derive the
 acceptance criteria strictly from what the input already states or plainly implies. If the
-input does not support any criterion, leave the checklist out and list the gap under
-"## À préciser".`,
+input does not support any criterion, leave the checklist out entirely and say nothing about
+why.`,
   },
   {
     id: 'fix',
@@ -109,9 +123,24 @@ file paths, identifiers and URLs byte-identical, including any mistake inside th
 needs correcting, return the input unchanged. Never append a section of any kind.`,
   },
   {
+    id: 'formal',
+    label: 'Formel',
+    hint: 'Registre soutenu, sans raideur',
+    kind: 'text',
+    systemPrompt: `${CORE_RULES}
+
+Preset: FORMAL REGISTER.
+Raise the register of the draft while keeping it the same text. Prefer precise vocabulary over
+vague or familiar wording, write complete sentences, drop elisions, abbreviations, slang and
+filler interjections. Keep it the same length or shorter: formality is precision, not padding,
+so do not add courtesy formulas, administrative phrasing or throat-clearing that the input does
+not already contain. Stay readable rather than pompous.
+${REGISTER_RULES}`,
+  },
+  {
     id: 'chat',
     label: 'Chat',
-    hint: 'Message court à coller dans un chat d’équipe',
+    hint: 'Message court et décontracté pour un chat d’équipe',
     kind: 'text',
     // Chat clients apply their Markdown shortcuts as you *type*, not on paste. A pasted
     // "**important**" therefore shows its asterisks, so the output has to read correctly with
@@ -124,9 +153,11 @@ pasted as plain text and will NOT be rendered, so it must read well unformatted:
 no tables, no bold or italic markers, no horizontal rules. Use short paragraphs and "- " bullets
 for enumerations. Inline code backticks may be dropped since nothing renders them, but the
 identifier they wrapped is kept character for character. Keep fenced code blocks whole: a reader
-needs them to stay recognisable as code, and they carry information the message cannot lose. Tone
-is direct and professional, no greeting and no sign-off unless the input already has one. Keep
-every technical fact and every question the draft contains. Never append a section of any kind.`,
+needs them to stay recognisable as code, and they carry information the message cannot lose.
+The register is deliberately informal: spoken rhythm, contractions, short sentences, no corporate
+or administrative phrasing, no hedging, no throat-clearing. Keep every technical fact and every
+question the draft contains.
+${REGISTER_RULES}`,
   },
 ] as const;
 

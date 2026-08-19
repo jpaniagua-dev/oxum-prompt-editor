@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
 import type { AppSettings, RewritePreset, ThemeMode, WindowBounds } from '@shared/contracts.js';
 import { atomicWriteFile, fileExists } from './atomic-write.js';
 
@@ -15,9 +16,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openAtLogin: false,
   fontSize: 15,
   model: 'sonnet',
+  modelByPresetId: {},
   claudePath: '',
   defaultPresetId: 'structure',
   maxBudgetUsd: 0.5,
+  // Empty means "the default directory under userData", resolved by the caller. Storing the
+  // resolved path instead would freeze it, and it moves with the Electron user data directory
+  // (a dev run uses its own).
+  notesDirectory: '',
+  promptsDirectory: '',
   customPresets: [],
 };
 
@@ -79,11 +86,65 @@ export function sanitizeSettings(raw: unknown): AppSettings {
     openAtLogin: asBoolean(input.openAtLogin, DEFAULT_SETTINGS.openAtLogin),
     fontSize: clamp(asNumber(input.fontSize, DEFAULT_SETTINGS.fontSize), 10, 32),
     model: asString(input.model, DEFAULT_SETTINGS.model),
+    modelByPresetId: asModelMap(input.modelByPresetId),
     claudePath: asString(input.claudePath, DEFAULT_SETTINGS.claudePath),
     defaultPresetId: asString(input.defaultPresetId, DEFAULT_SETTINGS.defaultPresetId),
     maxBudgetUsd: clamp(asNumber(input.maxBudgetUsd, DEFAULT_SETTINGS.maxBudgetUsd), 0.01, 20),
+    notesDirectory: asAbsolutePath(input.notesDirectory),
+    promptsDirectory: asAbsolutePath(input.promptsDirectory),
     customPresets: asPresets(input.customPresets),
   };
+}
+
+/**
+ * Model to use for one action: its own override when set, the global default otherwise.
+ *
+ * The fallback is what makes the feature safe to extend: a preset added later, by hand in
+ * `settings.json`, has no entry here and must still run rather than fail on an empty model.
+ */
+export function resolveModelForPreset(settings: AppSettings, presetId: string): string {
+  const override = settings.modelByPresetId[presetId]?.trim() ?? '';
+  return override.length > 0 ? override : settings.model;
+}
+
+/**
+ * Normalises the per-action model overrides.
+ *
+ * Unknown keys are kept on purpose: they may name a custom preset that is declared further down
+ * the same file, or one the user is about to add. Empty values are dropped instead of stored,
+ * so "no override" has a single representation rather than two.
+ */
+function asModelMap(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const trimmed = entry.trim();
+    if (trimmed.length > 0) {
+      result[key] = trimmed;
+    }
+  }
+  return result;
+}
+
+/**
+ * Accepts an absolute path, rejects anything else.
+ *
+ * A relative path here would be resolved against the working directory of a GUI process, which
+ * is the Electron binary location when launched from the Start menu: notes would land somewhere
+ * the user never chose. Falling back to the default is the same degrade-rather-than-break rule
+ * the rest of this function follows.
+ */
+function asAbsolutePath(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 && isAbsolute(trimmed) ? trimmed : '';
 }
 
 function asThemeMode(value: unknown): ThemeMode {

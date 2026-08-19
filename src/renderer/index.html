@@ -14,13 +14,34 @@
     <link rel="stylesheet" href="./styles/app.css" />
   </head>
   <body>
-    <div class="app">
+    <div class="app" id="app-root">
       <header class="titlebar" id="titlebar">
         <span class="titlebar__title">
           <span class="titlebar__mark" aria-hidden="true"></span>
           Prompt
         </span>
         <div class="titlebar__actions">
+          <button
+            type="button"
+            id="settings-button"
+            class="icon-button"
+            title="Réglages (Ctrl+,)"
+            aria-label="Ouvrir les réglages"
+          >
+            <!--
+              Sliders rather than a cog: a cog needs its teeth to be recognisable, and at the
+              14px this button renders at they collapse into a blob that reads as an asterisk.
+              Three tracks with knobs stay legible because the shapes are just bars and dots.
+            -->
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="2" y="3.3" width="12" height="1.4" rx="0.7" />
+              <circle cx="10.5" cy="4" r="2.1" />
+              <rect x="2" y="7.3" width="12" height="1.4" rx="0.7" />
+              <circle cx="5.5" cy="8" r="2.1" />
+              <rect x="2" y="11.3" width="12" height="1.4" rx="0.7" />
+              <circle cx="10" cy="12" r="2.1" />
+            </svg>
+          </button>
           <button
             type="button"
             id="theme-button"
@@ -46,6 +67,22 @@
           <button type="button" id="hide-button" class="icon-button" title="Masquer (Échap)">
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M3 7.2h10v1.6H3z" />
+            </svg>
+          </button>
+          <!--
+            A real quit, not a window close: it goes to the main process, which flushes the
+            draft, takes a last snapshot and saves the bounds before exiting. The minus above
+            only hides.
+          -->
+          <button
+            type="button"
+            id="quit-button"
+            class="icon-button icon-button--quit"
+            title="Quitter (le brouillon est enregistré)"
+            aria-label="Quitter l’application"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4.3 3.3l8.4 8.4-1 1-8.4-8.4zM12.7 4.3l-8.4 8.4-1-1 8.4-8.4z" />
             </svg>
           </button>
         </div>
@@ -83,6 +120,36 @@
           <div class="side-panel__body" id="side-panel-body"></div>
           <div class="side-panel__footer" id="side-panel-footer"></div>
         </aside>
+
+        <!--
+          Settings cover the whole workspace rather than sharing the side panel: the panel is 46%
+          of a window that can be 820px wide, which is not enough for a form carrying one model
+          field per action.
+        -->
+        <section class="settings-page" id="settings-page" hidden aria-label="Réglages">
+          <div class="settings-page__header">
+            <span>Réglages</span>
+            <button
+              type="button"
+              id="settings-close"
+              class="icon-button"
+              title="Fermer (Échap)"
+              aria-label="Fermer les réglages"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4.3 3.3l8.4 8.4-1 1-8.4-8.4zM12.7 4.3l-8.4 8.4-1-1 8.4-8.4z" />
+              </svg>
+            </button>
+          </div>
+          <div class="settings-page__body" id="settings-page-body"></div>
+          <div class="settings-page__footer">
+            <span class="settings-page__dirty" id="settings-dirty"></span>
+            <button type="button" id="settings-cancel" class="button">Annuler</button>
+            <button type="button" id="settings-save" class="button button--primary" disabled>
+              Enregistrer
+            </button>
+          </div>
+        </section>
       </div>
 
       <footer class="toolbar">
@@ -98,6 +165,17 @@
           ></select>
         </div>
         <div class="toolbar__group">
+          <button
+            type="button"
+            id="prompts-button"
+            class="button"
+            title="Bibliothèque de prompts (Ctrl+L)"
+          >
+            Prompts
+          </button>
+          <button type="button" id="notes-button" class="button" title="Notes (Ctrl+M)">
+            Notes
+          </button>
           <button type="button" id="history-button" class="button" title="Historique (Ctrl+H)">
             Historique
           </button>
@@ -114,6 +192,7 @@
         <span id="status-counts">0 car.</span>
         <span id="status-save" class="statusbar__save"></span>
         <span id="status-message" class="statusbar__message"></span>
+        <span id="status-version" class="statusbar__version"></span>
       </div>
     </div>
 

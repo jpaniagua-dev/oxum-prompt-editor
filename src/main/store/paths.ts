@@ -14,4 +14,12 @@ export const AppPaths = {
   settings: (): string => join(app.getPath('userData'), 'settings.json'),
   windowState: (): string => join(app.getPath('userData'), 'window-state.json'),
   historyDir: (): string => join(app.getPath('userData'), 'history'),
+  /**
+   * Where each library goes unless its setting says otherwise.
+   *
+   * Only defaults: these are the stores the user may relocate, since saved Markdown is worth
+   * syncing or versioning and `%APPDATA%` is not the place for that.
+   */
+  defaultNotesDir: (): string => join(app.getPath('userData'), 'notes'),
+  defaultPromptsDir: (): string => join(app.getPath('userData'), 'prompts'),
 } as const;

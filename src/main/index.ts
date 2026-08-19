@@ -1,4 +1,4 @@
-import { app, type BrowserWindow, type Tray } from 'electron';
+import { app, dialog, type BrowserWindow, type OpenDialogOptions, type Tray } from 'electron';
 import { join } from 'node:path';
 import { IpcChannel, type AppSettings, type RewriteEvent } from '@shared/contracts.js';
 import { RewriteService } from './claude/rewrite-service.js';
@@ -6,6 +6,7 @@ import { registerIpcHandlers } from './ipc.js';
 import { registerGlobalShortcut, shortcutLabel, unregisterGlobalShortcuts } from './shortcuts.js';
 import { DraftStore } from './store/draft-store.js';
 import { HistoryStore } from './store/history-store.js';
+import { LibraryStore } from './store/library-store.js';
 import { AppPaths } from './store/paths.js';
 import { SettingsStore } from './store/settings-store.js';
 import { WindowStateStore } from './store/window-state.js';
@@ -28,10 +29,19 @@ if (!app.isPackaged) {
 /**
  * A second launch must not open a second editor: it would compete for the same draft file
  * and one of the two buffers would be silently overwritten. The existing instance is
- * surfaced instead.
+ * surfaced instead, through the `second-instance` handler at the end of `bootstrap`.
+ *
+ * `app.exit` rather than `app.quit`: `quit` is asynchronous and does not stop this script, so
+ * the losing process went on to run `bootstrap()` anyway and opened the very `draft.md` and
+ * `settings.json` the winner is already writing to. Two writers on the draft is exactly what
+ * the lock exists to prevent. Nothing has been created at this point, so there is nothing to
+ * tear down gracefully.
+ *
+ * Note that the lock is keyed on `userData`, which every packaged build shares: launching a
+ * newer build while an older one is running surfaces the *old* window and exits here.
  */
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  app.exit(0);
 }
 
 let tray: Tray | null = null;
@@ -56,6 +66,18 @@ async function bootstrap(): Promise<void> {
 
   const historyStore = new HistoryStore(AppPaths.historyDir());
   history = historyStore;
+
+  // One store per library, each resolving its directory on every access rather than capturing
+  // it: the directories are settings, and a store holding the old path would keep writing where
+  // the UI no longer looks.
+  const libraries = {
+    notes: new LibraryStore(() =>
+      resolveDirectory(settingsStore.get().notesDirectory, AppPaths.defaultNotesDir()),
+    ),
+    prompts: new LibraryStore(() =>
+      resolveDirectory(settingsStore.get().promptsDirectory, AppPaths.defaultPromptsDir()),
+    ),
+  } as const;
   const windowStateStore = new WindowStateStore(AppPaths.windowState());
 
   const popupWindow = new PopupWindow(windowStateStore, {
@@ -81,11 +103,18 @@ async function bootstrap(): Promise<void> {
   registerIpcHandlers({
     drafts: draftStore,
     history: historyStore,
+    libraries,
     settings: settingsStore,
     rewrites: rewriteService,
     theme: themeController,
     recovered: () => recovered,
+    defaultDirectories: () => ({
+      notes: AppPaths.defaultNotesDir(),
+      prompts: AppPaths.defaultPromptsDir(),
+    }),
+    pickDirectory: (current) => pickDirectory(popupWindow.browserWindow, current),
     hideWindow: () => popupWindow.hide(),
+    quit: () => void quit(),
     setAlwaysOnTop: (pinned) => popupWindow.setAlwaysOnTop(pinned),
     onSettingsChanged: (next, previous) => applySettingsChange(next, previous, popupWindow),
   });
@@ -126,6 +155,36 @@ async function bootstrap(): Promise<void> {
     markQuitting();
     rewriteService.cancelAll();
   });
+}
+
+/**
+ * Where a library actually lives.
+ *
+ * `sanitizeSettings` has already rejected a relative path, so an empty value is the only
+ * "unset" state to handle here.
+ */
+function resolveDirectory(configured: string, fallback: string): string {
+  const trimmed = configured.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+}
+
+/**
+ * Native folder picker for the notes directory.
+ *
+ * Modal to the popup on purpose: a sheet the user can lose behind an always-on-top window is
+ * worse than one that blocks it, and the picker is short-lived.
+ */
+async function pickDirectory(parent: BrowserWindow | null, current: string): Promise<string | null> {
+  const options: OpenDialogOptions = {
+    properties: ['openDirectory', 'createDirectory'],
+    ...(current.trim().length > 0 ? { defaultPath: current.trim() } : {}),
+  };
+  const result =
+    parent === null || parent.isDestroyed()
+      ? await dialog.showOpenDialog(options)
+      : await dialog.showOpenDialog(parent, options);
+
+  return result.canceled ? null : (result.filePaths[0] ?? null);
 }
 
 /** Loads the renderer from the dev server when available, from disk otherwise. */

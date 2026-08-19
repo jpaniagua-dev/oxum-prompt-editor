@@ -179,6 +179,8 @@ body {
 /* --------------------------------------------------------------- workspace */
 
 .workspace {
+  /* Containing block for the settings overlay, which covers both the editor and the panel. */
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -478,6 +480,12 @@ body {
   color: var(--danger);
 }
 
+/* Pushed hard right, dimmer than the rest: reference information, not a status. */
+.statusbar__version {
+  color: var(--text-faint);
+  opacity: 0.7;
+}
+
 /* ------------------------------------------------------------------- toast */
 
 .toast {
@@ -569,4 +577,256 @@ body {
 
 .cm-searchMatch-selected {
   background: var(--selection);
+}
+
+/* ------------------------------------------------------------------- notes */
+
+.notes-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A row, not a button: it holds three actions, and a button inside a button is invalid HTML. */
+.note-item {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 2px 4px 2px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-item__open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.note-item__open:hover,
+.note-item__open:focus-visible {
+  background: var(--surface-hover);
+}
+
+.note-item__title {
+  font-size: 12.5px;
+  /* One line: a note title is a whole first line, which can be long. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.note-item__meta {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.note-item__tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* Revealed on hover or when a tool has focus, so the list reads as titles first. */
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+
+.note-item:hover .note-item__tools,
+.note-item__tools:focus-within {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-item__tools {
+    transition: none;
+  }
+}
+
+.notes-empty__path {
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+/* A quiet button for row-level actions, and its armed state while awaiting confirmation. */
+.button--quiet {
+  padding: 3px 8px;
+  border-color: transparent;
+  background: none;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.button--quiet:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.button--armed {
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- settings */
+
+/* Covers the workspace rather than sharing the side panel: one model field per action does not
+   fit in a 280px minimum column. */
+.settings-page {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.settings-page[hidden] {
+  display: none;
+}
+
+.settings-page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-page__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 20px;
+}
+
+.settings-section + .settings-section {
+  margin-top: 22px;
+}
+
+.settings-section__title {
+  margin: 0 0 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.settings-field + .settings-field,
+.settings-group {
+  margin-top: 12px;
+}
+
+.settings-field__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.settings-field__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-field__hint {
+  margin: 4px 0 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.settings-input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+}
+
+.settings-input--number {
+  flex: 0 0 96px;
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-group {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.settings-group__title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* The settings page is a page, not a sheet: the bars below and above it act on the draft, which
+   is no longer what is on screen. Hiding them removes controls that would do nothing useful. */
+.app--settings .format-bar,
+.app--settings .toolbar {
+  display: none;
+}
+
+/* A quit that is not a hide, so it must not read like the minimise beside it. */
+.icon-button--quit:hover {
+  background: var(--danger);
+  color: var(--white);
+}
+
+.settings-page__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.settings-page__dirty {
+  margin-right: auto;
+  color: var(--warning);
+  font-size: 11px;
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.button--primary:disabled:hover {
+  background: var(--primary);
 }

@@ -2,6 +2,8 @@ import type { EditorView } from '@codemirror/view';
 import type {
   AppSettings,
   HistoryEntry,
+  LibraryEntry,
+  LibraryId,
   PresetKind,
   RewriteErrorEvent,
   RewriteEvent,
@@ -10,6 +12,7 @@ import type {
   ThemeState,
 } from '@shared/contracts.js';
 import {
+  applyEditorFontSize,
   applyEditorTheme,
   createEditor,
   focusAtEnd,
@@ -18,7 +21,14 @@ import {
 } from './editor/create-editor.js';
 import { createAppKeymap } from './editor/keymap.js';
 import { createElement, requireElement } from './ui/dom.js';
+import { formatTimestamp } from './ui/format.js';
 import { mountFormatBar } from './ui/format-bar.js';
+import {
+  confirmButton,
+  renderLibraryEmpty,
+  renderLibraryList,
+} from './ui/library-panel.js';
+import { SettingsPage } from './ui/settings-page.js';
 import { SidePanel } from './ui/side-panel.js';
 import { StatusBar } from './ui/status-bar.js';
 import { Toast } from './ui/toast.js';
@@ -33,10 +43,18 @@ class App {
   private readonly toast = new Toast();
   private readonly panel = new SidePanel();
 
+  private readonly settingsPage = new SettingsPage({
+    onSave: (settings) => void this.applySettings(settings),
+    onPickDirectory: (current) => window.api.pickDirectory(current),
+    onClose: () => this.exitSettings(),
+  });
+
   private editor: EditorView | null = null;
   private settings: AppSettings | null = null;
   private presets: readonly RewritePreset[] = [];
   private theme: ThemeState = { mode: 'system', resolved: 'light' };
+  /** Default folder per library, for the settings placeholders and the empty panels. */
+  private defaultDirectories: Record<LibraryId, string> = { notes: '', prompts: '' };
 
   /** Id of the rewrite in flight, used to ignore events from a cancelled one. */
   private activeRewriteId: string | null = null;
@@ -48,6 +66,10 @@ class App {
     const bootstrap = await window.api.bootstrap();
     this.settings = bootstrap.settings;
     this.presets = bootstrap.presets;
+    this.defaultDirectories = { ...bootstrap.defaultDirectories };
+    // Which build is running has to be answerable without leaving the window: an old
+    // instance still in the tray silently swallows the launch of a newer one.
+    requireElement<HTMLSpanElement>('status-version').textContent = `v${bootstrap.appVersion}`;
 
     // Paint the theme before the editor exists: the main process already resolved it, so there
     // is no moment where the page shows the wrong palette.
@@ -67,6 +89,9 @@ class App {
         rewritePick: () => this.focusPresetSelect(),
         newPrompt: () => void this.newPrompt(),
         toggleHistory: () => void this.toggleHistory(),
+        toggleNotes: () => void this.toggleLibrary('notes'),
+        togglePrompts: () => void this.toggleLibrary('prompts'),
+        toggleSettings: () => this.toggleSettings(),
         cycleTheme: () => void this.cycleTheme(),
         escape: () => this.handleEscape(),
       }),
@@ -114,11 +139,23 @@ class App {
   }
 
   private async cycleTheme(): Promise<void> {
-    const next = nextThemeMode(this.theme.mode);
-    const state = await window.api.setThemeMode(next);
-    this.applyTheme(state);
-    this.statusBar.setMessage(`thème : ${describeThemeMode(state.mode)}`);
+    await this.setThemeMode(nextThemeMode(this.theme.mode));
     this.editor?.focus();
+  }
+
+  /**
+   * Applies a theme mode, whether it came from the titlebar button or the settings page.
+   *
+   * The main process owns the decision and persists it, so the renderer never writes `themeMode`
+   * through `updateSettings`: two writers would let the window background and the page disagree.
+   */
+  private async setThemeMode(mode: ThemeMode): Promise<void> {
+    const state = await window.api.setThemeMode(mode);
+    this.applyTheme(state);
+    if (this.settings !== null) {
+      this.settings = { ...this.settings, themeMode: state.mode };
+    }
+    this.statusBar.setMessage(`thème : ${describeThemeMode(state.mode)}`);
   }
 
   /** Draws the icon for the current mode: sun, moon, or half-filled circle for "system". */
@@ -143,6 +180,224 @@ class App {
       shape.setAttribute('fill', 'currentColor');
     }
     icon.append(shape);
+  }
+
+  /* ------------------------------------------------------------- settings */
+
+  private toggleSettings(): void {
+    if (this.settingsPage.isOpen) {
+      this.settingsPage.close();
+      return;
+    }
+    if (this.settings === null) {
+      return;
+    }
+    // The panel would sit behind the overlay, and its Escape handling is now second in line.
+    this.panel.close();
+    // The format bar and the toolbar act on the draft, which is not what is on screen any more.
+    // Hiding them makes the overlay a page rather than a sheet floating over live controls.
+    requireElement<HTMLDivElement>('app-root').classList.add('app--settings');
+    this.settingsPage.show(this.settings, this.presets, this.defaultDirectories);
+  }
+
+  /** Restores the chrome the settings page hid, whether it was saved or cancelled. */
+  private exitSettings(): void {
+    requireElement<HTMLDivElement>('app-root').classList.remove('app--settings');
+    this.editor?.focus();
+  }
+
+  /**
+   * Commits the settings page.
+   *
+   * Everything lands at once here rather than field by field, and three of them need more than a
+   * write to `settings.json`: the theme is owned by the main process, the pin state is mirrored
+   * on a titlebar button, and the font size has to reach the live editor. The store returns the
+   * sanitised result, so a value it clamped or rejected is what the renderer then remembers.
+   */
+  private async applySettings(next: AppSettings): Promise<void> {
+    const previous = this.settings;
+
+    this.settings = await window.api.updateSettings({
+      globalShortcut: next.globalShortcut,
+      alwaysOnTop: next.alwaysOnTop,
+      hideOnBlur: next.hideOnBlur,
+      openAtLogin: next.openAtLogin,
+      fontSize: next.fontSize,
+      model: next.model,
+      modelByPresetId: next.modelByPresetId,
+      claudePath: next.claudePath,
+      maxBudgetUsd: next.maxBudgetUsd,
+      notesDirectory: next.notesDirectory,
+      promptsDirectory: next.promptsDirectory,
+    });
+
+    if (previous?.themeMode !== next.themeMode) {
+      await this.setThemeMode(next.themeMode);
+    }
+    if (previous?.alwaysOnTop !== next.alwaysOnTop) {
+      void window.api.setAlwaysOnTop(next.alwaysOnTop);
+      this.reflectPinState(next.alwaysOnTop);
+    }
+    if (this.editor !== null) {
+      applyEditorFontSize(this.editor, this.settings.fontSize);
+    }
+    this.statusBar.setMessage('réglages enregistrés');
+  }
+
+  /** Keeps the pin button in step with the setting, whichever control changed it. */
+  private reflectPinState(pinned: boolean): void {
+    requireElement<HTMLButtonElement>('pin-button').setAttribute('aria-pressed', String(pinned));
+  }
+
+  /* -------------------------------------------------------------- libraries */
+
+  private async toggleLibrary(library: LibraryId): Promise<void> {
+    if (this.panel.currentMode === library) {
+      this.panel.close();
+      this.editor?.focus();
+      return;
+    }
+    await this.openLibrary(library);
+  }
+
+  /**
+   * Shows one library.
+   *
+   * The two differ only in what a row does. A note is a working document, so it is loaded into
+   * the editor; a prompt is reusable material, so it is copied to the clipboard and the draft is
+   * left alone, which is the reason the two are kept in separate folders at all.
+   */
+  private async openLibrary(library: LibraryId): Promise<void> {
+    const spec = LIBRARIES[library];
+    const entries = await window.api.listLibrary(library);
+    this.panel.open(library, `${spec.title} · ${entries.length}`);
+
+    this.panel.setContent(
+      entries.length === 0
+        ? renderLibraryEmpty(spec.empty, this.directoryOf(library))
+        : renderLibraryList(entries, {
+            onActivate: (entry) => void this.activateEntry(library, entry),
+            activateHint: spec.activateHint,
+            // Replacing an entry with the draft makes sense for a working document, not for a
+            // prompt that is copied out and never loaded in.
+            onOverwrite:
+              library === 'notes' ? (entry) => void this.overwriteEntry(library, entry) : null,
+            onDelete: (entry) => void this.deleteEntry(library, entry),
+          }),
+    );
+    this.panel.setActions([
+      {
+        label: spec.saveLabel,
+        variant: 'primary',
+        title: 'Nommé d’après la première ligne du brouillon',
+        onClick: () => void this.saveDraftTo(library),
+      },
+    ]);
+  }
+
+  private async saveDraftTo(library: LibraryId): Promise<void> {
+    if (this.editor === null) {
+      return;
+    }
+    const text = getText(this.editor);
+    if (text.trim().length === 0) {
+      this.toast.show('Rien à enregistrer');
+      return;
+    }
+    try {
+      const entry = await window.api.saveToLibrary(library, text);
+      await this.openLibrary(library);
+      this.toast.show(`Enregistré : ${entry.id}`);
+    } catch (error) {
+      this.statusBar.setMessage(`enregistrement impossible: ${describeError(error)}`, true);
+    }
+  }
+
+  private async activateEntry(library: LibraryId, entry: LibraryEntry): Promise<void> {
+    if (library === 'prompts') {
+      await this.copyEntry(entry);
+      return;
+    }
+    await this.loadEntry(entry);
+  }
+
+  /**
+   * Copies a prompt to the clipboard.
+   *
+   * Deliberately does not touch the draft: grabbing a frequently used prompt should not cost
+   * whatever is currently being written. The panel stays open, so several can be taken in a row.
+   */
+  private async copyEntry(entry: LibraryEntry): Promise<void> {
+    try {
+      const text = await window.api.readLibraryEntry('prompts', entry.id);
+      await window.api.writeClipboard(text);
+      this.toast.show('Prompt copié, collez avec Ctrl+V');
+    } catch (error) {
+      this.statusBar.setMessage(`lecture impossible: ${describeError(error)}`, true);
+    }
+  }
+
+  /**
+   * Loads a note into the editor.
+   *
+   * Same contract as restoring a snapshot: the draft is archived first, then replaced in a single
+   * transaction, so one `Ctrl+Z` brings it back. Notes are a library, not a second live buffer,
+   * so nothing binds the editor to the note afterwards.
+   */
+  private async loadEntry(entry: LibraryEntry): Promise<void> {
+    if (this.editor === null) {
+      return;
+    }
+    try {
+      const text = await window.api.readLibraryEntry('notes', entry.id);
+      const current = getText(this.editor);
+      if (current.trim().length > 0) {
+        await window.api.snapshotDraft(current, 'restore');
+      }
+      replaceAll(this.editor, text);
+      this.panel.close();
+      this.editor.focus();
+      this.toast.show('Note chargée · Ctrl+Z pour revenir');
+    } catch (error) {
+      this.statusBar.setMessage(`lecture impossible: ${describeError(error)}`, true);
+    }
+  }
+
+  private async overwriteEntry(library: LibraryId, entry: LibraryEntry): Promise<void> {
+    if (this.editor === null) {
+      return;
+    }
+    const text = getText(this.editor);
+    if (text.trim().length === 0) {
+      this.toast.show('Rien à enregistrer');
+      return;
+    }
+    try {
+      await window.api.overwriteLibraryEntry(library, entry.id, text);
+      await this.openLibrary(library);
+      this.toast.show('Contenu remplacé');
+    } catch (error) {
+      this.statusBar.setMessage(`écriture impossible: ${describeError(error)}`, true);
+    }
+  }
+
+  private async deleteEntry(library: LibraryId, entry: LibraryEntry): Promise<void> {
+    try {
+      await window.api.deleteLibraryEntry(library, entry.id);
+      await this.openLibrary(library);
+      this.toast.show('Supprimé');
+    } catch (error) {
+      this.statusBar.setMessage(`suppression impossible: ${describeError(error)}`, true);
+    }
+  }
+
+  /** The folder a library actually uses, for the empty state. */
+  private directoryOf(library: LibraryId): string {
+    const configured =
+      library === 'notes'
+        ? (this.settings?.notesDirectory.trim() ?? '')
+        : (this.settings?.promptsDirectory.trim() ?? '');
+    return configured.length > 0 ? configured : this.defaultDirectories[library];
   }
 
   /* ------------------------------------------------------------ persistence */
@@ -224,6 +479,12 @@ class App {
   }
 
   private handleEscape(): void {
+    // Settings first: they cover the panel, so closing what is underneath would look like
+    // nothing happened.
+    if (this.settingsPage.isOpen) {
+      this.settingsPage.close();
+      return;
+    }
     if (this.panel.isOpen) {
       this.panel.close();
       this.editor?.focus();
@@ -431,6 +692,10 @@ class App {
       return;
     }
 
+    await this.openHistory();
+  }
+
+  private async openHistory(): Promise<void> {
     const entries = await window.api.listHistory();
     this.panel.open('history', `Historique · ${entries.length}`);
 
@@ -449,6 +714,30 @@ class App {
       list.append(this.createHistoryItem(entry));
     }
     this.panel.setContent(list);
+    this.panel.setFooterNodes(
+      confirmButton({
+        label: 'Tout supprimer',
+        armedLabel: `Confirmer (${entries.length})`,
+        title: 'Supprime tous les instantanés. Le brouillon en cours et les notes ne sont pas touchés.',
+        onConfirm: () => void this.clearHistory(),
+      }),
+    );
+  }
+
+  /**
+   * Empties the snapshot archive.
+   *
+   * Safe to offer because snapshots are the disposable copy: the draft itself is untouched, and
+   * anything worth keeping belongs in a note. Two clicks are required, in the button itself.
+   */
+  private async clearHistory(): Promise<void> {
+    try {
+      const removed = await window.api.clearHistory();
+      await this.openHistory();
+      this.toast.show(removed === 0 ? 'Rien à supprimer' : `${removed} instantanés supprimés`);
+    } catch (error) {
+      this.statusBar.setMessage(`suppression impossible: ${describeError(error)}`, true);
+    }
   }
 
   private createHistoryItem(entry: HistoryEntry): HTMLElement {
@@ -493,11 +782,14 @@ class App {
     });
 
     const pin = requireElement<HTMLButtonElement>('pin-button');
-    pin.setAttribute('aria-pressed', String(this.settings?.alwaysOnTop ?? true));
+    this.reflectPinState(this.settings?.alwaysOnTop ?? true);
     pin.addEventListener('click', () => {
       const next = pin.getAttribute('aria-pressed') !== 'true';
-      pin.setAttribute('aria-pressed', String(next));
+      this.reflectPinState(next);
       void window.api.setAlwaysOnTop(next);
+      if (this.settings !== null) {
+        this.settings = { ...this.settings, alwaysOnTop: next };
+      }
       this.statusBar.setMessage(next ? 'toujours au premier plan' : 'premier plan désactivé');
     });
 
@@ -510,6 +802,20 @@ class App {
     requireElement<HTMLButtonElement>('history-button').addEventListener('click', () => {
       void this.toggleHistory();
     });
+    requireElement<HTMLButtonElement>('notes-button').addEventListener('click', () => {
+      void this.toggleLibrary('notes');
+    });
+    requireElement<HTMLButtonElement>('prompts-button').addEventListener('click', () => {
+      void this.toggleLibrary('prompts');
+    });
+    requireElement<HTMLButtonElement>('settings-button').addEventListener('click', () => {
+      this.toggleSettings();
+    });
+    requireElement<HTMLButtonElement>('quit-button').addEventListener('click', () => {
+      // Goes to the main process, which flushes the draft, archives a last snapshot and saves
+      // the bounds before exiting. Nothing is lost, so no confirmation is warranted.
+      window.api.quitApp();
+    });
     requireElement<HTMLButtonElement>('rewrite-button').addEventListener('click', () => {
       void this.startRewrite(this.currentPresetId());
     });
@@ -518,6 +824,31 @@ class App {
     });
   }
 }
+
+/**
+ * How each library presents itself.
+ *
+ * Wording is the only real difference between the two, so it lives in one table rather than being
+ * threaded through the render path as arguments.
+ */
+const LIBRARIES: Readonly<
+  Record<LibraryId, { title: string; empty: string; saveLabel: string; activateHint: string }>
+> = {
+  notes: {
+    title: 'Notes',
+    empty:
+      'Aucune note. « Enregistrer le brouillon » en crée une, nommée d’après sa première ligne.',
+    saveLabel: 'Enregistrer le brouillon',
+    activateHint: 'Charger dans l’éditeur',
+  },
+  prompts: {
+    title: 'Bibliothèque',
+    empty:
+      'Aucun prompt enregistré. « Enregistrer le prompt » range le brouillon courant ici, pour le recopier ensuite en un clic.',
+    saveLabel: 'Enregistrer le prompt',
+    activateHint: 'Copier dans le presse-papier',
+  },
+};
 
 /** Picker groups, in display order. The label says what the preset *produces*. */
 const PRESET_GROUPS: readonly (readonly [PresetKind, string])[] = [
@@ -564,19 +895,6 @@ function describeThemeMode(mode: ThemeMode): string {
     case 'system':
       return 'système';
   }
-}
-
-function formatTimestamp(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return iso;
-  }
-  return date.toLocaleString('fr-CH', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 function describeReason(reason: HistoryEntry['reason']): string {

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { BUILT_IN_PRESETS, mergePresets, resolvePreset } from '../src/main/claude/presets.js';
 import { buildRewriteArgs } from '../src/main/claude/claude-cli.js';
-import { DEFAULT_SETTINGS, sanitizeSettings } from '../src/main/store/settings-store.js';
+import {
+  DEFAULT_SETTINGS,
+  resolveModelForPreset,
+  sanitizeSettings,
+} from '../src/main/store/settings-store.js';
 
 describe('presets', () => {
   it('every built-in forbids inventing content', () => {
@@ -19,22 +23,43 @@ describe('presets', () => {
     }
   });
 
-  it('routes ambiguity to "À préciser" only for prompts handed to an agent', () => {
-    // The anti-fabrication guarantee is universal; this particular *mechanism* is not.
-    // A corrected paragraph or a chat message with a section of open questions stapled to
-    // the end is a defect: that text gets pasted as-is.
+  it('never appends a section, in either family', () => {
+    // The "## À préciser" section used to be the agent-prompt family's answer to an ambiguous
+    // draft. It showed up on every run, including on drafts that were not ambiguous, so the
+    // author had to delete it before using the prompt.
     const agentPrompts = BUILT_IN_PRESETS.filter((preset) => preset.kind === 'agent-prompt');
     const texts = BUILT_IN_PRESETS.filter((preset) => preset.kind === 'text');
 
     expect(agentPrompts.length).toBeGreaterThan(0);
     expect(texts.length).toBeGreaterThan(0);
 
+    for (const preset of BUILT_IN_PRESETS) {
+      expect(preset.systemPrompt).not.toContain('À préciser');
+    }
+    // Removing the instruction is not enough: left to itself the model appends a "Note: the
+    // following points remain unclear" of its own. Silence has to be asked for.
     for (const preset of agentPrompts) {
-      expect(preset.systemPrompt).toContain('À préciser');
+      expect(preset.systemPrompt).toMatch(/Never append a section of questions/);
     }
     for (const preset of texts) {
-      expect(preset.systemPrompt).not.toContain('À préciser');
       expect(preset.systemPrompt).toContain('Never append a section');
+    }
+  });
+
+  it('offers both a formal and an informal register, without touching tu/vous', () => {
+    // Register is style; "tu" versus "vous" is a fact about the relationship the draft does not
+    // state. A model asked to be formal switches a French text to "vous" unless forbidden, which
+    // silently changes who the author appears to be addressing.
+    const formal = BUILT_IN_PRESETS.find((preset) => preset.id === 'formal');
+    const chat = BUILT_IN_PRESETS.find((preset) => preset.id === 'chat');
+
+    expect(formal?.kind).toBe('text');
+    expect(formal?.systemPrompt).toContain('FORMAL REGISTER');
+    expect(chat?.systemPrompt).toContain('deliberately informal');
+
+    for (const preset of [formal, chat]) {
+      expect(preset?.systemPrompt).toContain('Never change how the reader is addressed');
+      expect(preset?.systemPrompt).toContain('Never add or remove a greeting');
     }
   });
 
@@ -199,11 +224,65 @@ describe('sanitizeSettings', () => {
     });
   });
 
+  it('normalises the per-action model map and drops blank overrides', () => {
+    // "No override" must have one representation, otherwise an empty string would shadow the
+    // global default and the CLI would be called with --model "".
+    const settings = sanitizeSettings({
+      modelByPresetId: { fix: '  haiku  ', chat: '', spec: 42, structure: 'opus' },
+    });
+
+    expect(settings.modelByPresetId).toEqual({ fix: 'haiku', structure: 'opus' });
+  });
+
+  it('ignores a per-action model map that is not an object', () => {
+    expect(sanitizeSettings({ modelByPresetId: 'haiku' }).modelByPresetId).toEqual({});
+    expect(sanitizeSettings({ modelByPresetId: ['haiku'] }).modelByPresetId).toEqual({});
+  });
+
+  it('rejects a relative notes directory rather than resolving it', () => {
+    // A GUI process launched from the Start menu has the Electron binary as its working
+    // directory, so a relative path would put the notes somewhere the user never chose.
+    expect(sanitizeSettings({ notesDirectory: 'mes-notes' }).notesDirectory).toBe('');
+    expect(sanitizeSettings({ notesDirectory: '   ' }).notesDirectory).toBe('');
+    expect(sanitizeSettings({ notesDirectory: 42 }).notesDirectory).toBe('');
+  });
+
+  it('keeps an absolute notes directory, trimmed', () => {
+    const windowsPath = String.raw`C:\Users\moi\Notes`;
+    expect(sanitizeSettings({ notesDirectory: ` ${windowsPath} ` }).notesDirectory).toBe(
+      windowsPath,
+    );
+    expect(sanitizeSettings({ notesDirectory: '/srv/notes' }).notesDirectory).toBe('/srv/notes');
+  });
+
   it('honours an explicit kind on a custom preset', () => {
     const settings = sanitizeSettings({
       customPresets: [{ id: 'mail', label: 'Mail', kind: 'text', systemPrompt: 'X' }],
     });
 
     expect(settings.customPresets[0]?.kind).toBe('text');
+  });
+});
+
+describe('resolveModelForPreset', () => {
+  const base = { ...DEFAULT_SETTINGS, model: 'sonnet' };
+
+  it('uses the per-action override when there is one', () => {
+    const settings = { ...base, modelByPresetId: { fix: 'haiku', structure: 'opus' } };
+    expect(resolveModelForPreset(settings, 'fix')).toBe('haiku');
+    expect(resolveModelForPreset(settings, 'structure')).toBe('opus');
+  });
+
+  it('falls back to the global model for an action with no override', () => {
+    // The fallback is what lets a preset be added later, by hand, without also having to add a
+    // model for it: without it the CLI would be called with an empty --model.
+    const settings = { ...base, modelByPresetId: { fix: 'haiku' } };
+    expect(resolveModelForPreset(settings, 'chat')).toBe('sonnet');
+    expect(resolveModelForPreset(settings, 'un-preset-perso')).toBe('sonnet');
+  });
+
+  it('treats a blank override as no override', () => {
+    const settings = { ...base, modelByPresetId: { fix: '   ' } };
+    expect(resolveModelForPreset(settings, 'fix')).toBe('sonnet');
   });
 });

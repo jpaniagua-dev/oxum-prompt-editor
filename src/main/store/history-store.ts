@@ -9,11 +9,15 @@ const MAX_ENTRIES = 200;
 const FILE_PATTERN = /^(\d{8}T\d{6}\d{0,3})-([a-z]+)\.md$/;
 
 /**
- * Append-only archive of past drafts.
+ * Archive of past drafts.
  *
- * Snapshots are taken at every point where text could otherwise be lost: before a
- * clear, before a rewrite is applied, on copy, and on quit. Nothing in the app deletes
- * a snapshot except the size-based pruning here.
+ * Snapshots are taken at every point where text could otherwise be lost: before a clear, before
+ * a rewrite is applied, on copy, and on quit. They accumulate on their own, without the user
+ * ever asking, which is why they are also the one thing here that can be thrown away: the
+ * size-based pruning below, and {@link HistoryStore.clear} on an explicit request.
+ *
+ * That is the line between this store and `LibraryStore`: an automatic copy is disposable, a note
+ * or a prompt the user deliberately saved is not, so nothing ever deletes one.
  */
 export class HistoryStore {
   constructor(
@@ -74,6 +78,29 @@ export class HistoryStore {
       throw new Error(`Invalid history id: ${id}`);
     }
     return readFile(join(this.directory, id), 'utf8');
+  }
+
+  /**
+   * Deletes every snapshot and returns how many were removed.
+   *
+   * Scoped to the generated names: a file the user dropped into this directory is not the app's
+   * to delete. Failures are logged per file rather than aborting, so one locked snapshot does
+   * not leave the purge half done with no way to finish it.
+   */
+  async clear(): Promise<number> {
+    const names = await this.listSnapshotFiles();
+    const removed = await Promise.all(
+      names.map(async (name) => {
+        try {
+          await unlink(join(this.directory, name));
+          return true;
+        } catch (error) {
+          console.error('[history-store] failed to delete snapshot', name, error);
+          return false;
+        }
+      }),
+    );
+    return removed.filter(Boolean).length;
   }
 
   /** Deletes the oldest snapshots beyond `maxEntries`. */

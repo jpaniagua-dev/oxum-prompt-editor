@@ -105,6 +105,30 @@ describe('HistoryStore', () => {
     await expect(store.list()).resolves.toEqual([]);
   });
 
+  it('clears every snapshot and reports how many went', async () => {
+    const store = new HistoryStore(workDir);
+    await store.snapshot('un', 'copy', at(1));
+    await store.snapshot('deux', 'new', at(2));
+
+    expect(await store.clear()).toBe(2);
+    expect(await store.list()).toEqual([]);
+  });
+
+  it('leaves foreign files alone when clearing', async () => {
+    // The directory is the app's, but a file the user dropped in it is not the app's to delete.
+    const store = new HistoryStore(workDir);
+    await store.snapshot('mien', 'copy', at(1));
+    await writeFile(join(workDir, 'notes-a-moi.txt'), 'garde-moi');
+
+    expect(await store.clear()).toBe(1);
+    expect(await readdir(workDir)).toEqual(['notes-a-moi.txt']);
+  });
+
+  it('clears an absent directory without failing', async () => {
+    const store = new HistoryStore(join(workDir, 'jamais-cree'));
+    expect(await store.clear()).toBe(0);
+  });
+
   it('rejects ids that are not generated names, blocking path traversal', async () => {
     const store = new HistoryStore(workDir);
     await expect(store.read('../../settings.json')).rejects.toThrow('Invalid history id');

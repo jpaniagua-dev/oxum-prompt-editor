@@ -7,13 +7,18 @@
 C'est la raison d'être de l'app, pas une qualité parmi d'autres. Toute modification doit
 préserver ces propriétés :
 
-- **Aucun geste de l'UI ne détruit le buffer.** `Esc` et le bouton de fermeture masquent la
-  fenêtre. On ne quitte que par le menu du tray.
+- **Aucun geste de l'UI ne détruit le buffer.** `Esc` et le bouton `−` masquent la fenêtre.
+  Quitter se fait par le menu du tray **ou par le bouton `✕` de la barre de titre**, et les deux
+  passent par la même fonction `quit()` : flush du brouillon, instantané final, sauvegarde des
+  bounds, puis sortie. ⚠️ Ne jamais câbler une fermeture sur `window.close()` côté renderer, elle
+  sauterait les trois.
 - **Toute écriture de fichier passe par `atomicWriteFile`** (`src/main/store/atomic-write.ts`) :
   temp + rename, jamais `writeFile` direct sur un fichier de données. Un `writeFile` tronque
   avant d'écrire, donc un crash au mauvais moment détruit le brouillon.
 - **Toute action qui remplace ou vide le buffer archive d'abord** un instantané via
-  `snapshotDraft`. Cela concerne `Nouveau`, `Appliquer` une réécriture, et `restaurer`.
+  `snapshotDraft`. Cela concerne `Nouveau`, `Appliquer` une réécriture, `restaurer` un
+  instantané et **charger une note**. Copier un prompt de la bibliothèque ne touche pas au
+  buffer, donc n'a rien à archiver.
 - **Un remplacement de document se fait en une seule transaction CodeMirror** (`replaceAll`),
   pour qu'un unique `Ctrl+Z` le défasse.
 
@@ -34,14 +39,56 @@ pratique.
   sérialiseur WYSIWYG : il altérerait blocs de code, backticks et indentation.
 - **Le brouillon passe au CLI par stdin**, jamais en argv (limite ~32k sur Windows, plus l'enfer
   du quoting).
+- **Deux régimes de stockage.** `HistoryStore` accumule tout seul, donc ses instantanés sont
+  jetables : pruning à 200 et purge explicite (`clear()`). `LibraryStore` ne prune **jamais** et ne
+  supprime que sur demande, une entrée à la fois : elle a été créée exprès. Inverser ces deux
+  régimes serait la perte de données que l'app existe pour empêcher.
+- **`LibraryStore` sert deux bibliothèques**, `notes` et `prompts` (`LibraryId`), par deux
+  instances sur deux dossiers. La classe ignore laquelle elle sert : la différence est dans le
+  panneau. Une note se **charge dans l'éditeur** (donc snapshot du brouillon d'abord), un prompt se
+  **copie dans le presse-papier** sans toucher au brouillon. C'est précisément ce qui justifie deux
+  dossiers plutôt qu'un : prendre un prompt fréquent ne doit rien coûter à ce qu'on est en train
+  d'écrire.
+- **Les canaux `library:*` prennent un `LibraryId` en premier argument.** Un discriminant typé vaut
+  mieux que cinq canaux de plus, et ce n'est pas un canal générique : `libraryOf()` le résout
+  contre une table fixe de stores côté main, donc le renderer ne nomme jamais une destination
+  arbitraire.
+- **Les dossiers des bibliothèques sont configurables**, donc résolus par un `() => string` à
+  chaque appel et pas figés au constructeur. Deux conséquences : `DOCUMENT_ID_PATTERN` est la seule
+  barrière contre la traversée de chemin dans un dossier qui peut être n'importe où, et changer le
+  réglage **ne déplace pas** les fichiers existants (un déplacement raté à mi-course est exactement
+  le risque qu'on refuse).
 - **Chaque preset de réécriture interdit d'inventer du contenu** (`CORE_RULES`). Sans cette
   contrainte, le modèle fabrique des exigences absentes de l'entrée. Elle vaut pour tous les
   presets, sans exception, et un test le vérifie.
-- **Le renvoi des zones floues vers `## À préciser` ne concerne que la famille `agent-prompt`**
-  (`AGENT_PROMPT_RULES`). Le champ `kind` de `RewritePreset` porte la distinction : `agent-prompt`
-  produit un prompt Markdown pour un agent de code, `text` produit un texte lu par un humain
-  (`Corriger`, `Chat`). Coller une section de questions à la fin d'un texte que l'utilisateur
-  envoie tel quel est un défaut, pas une garantie. Un test vérifie les deux familles.
+- **Aucun preset n'ajoute de section à la fin de sa sortie.** La famille `agent-prompt` a longtemps
+  renvoyé les zones floues vers un `## À préciser` : supprimé le 2026-08-19, parce que la section
+  tombait à chaque réécriture, y compris sur un brouillon sans ambiguïté. ⚠️ **Ne pas se contenter
+  de retirer la consigne si on retouche ces prompts** : privé d'instruction, le modèle ajoute de
+  lui-même un « Note : les points suivants restent flous ». `AGENT_PROMPT_RULES` et
+  `REGISTER_RULES` portent donc une **interdiction explicite**, et un test la vérifie sur les deux
+  familles. Le champ `kind` de `RewritePreset` ne distingue plus que la forme : `agent-prompt`
+  produit du Markdown structuré pour un agent de code, `text` produit un texte lu tel quel par un
+  humain (`Corriger`, `Formel`, `Chat`).
+- **`Formel` et `Chat` changent le registre, jamais l'adresse au lecteur** (`REGISTER_RULES`). Le
+  registre est une affaire de style ; le tu/vous est un fait relationnel que le brouillon ne dit
+  pas. Sans interdiction, un modèle à qui on demande du soutenu bascule un texte français en
+  « vous » et change silencieusement à qui l'auteur semble parler.
+- **Le modèle est résolu par action**, pas globalement : `resolveModelForPreset` prend l'override
+  de `modelByPresetId`, sinon `model`. Le repli sur le défaut n'est pas cosmétique : un preset
+  ajouté à la main dans `settings.json` n'a pas d'entrée, et sans repli le CLI serait appelé avec
+  un `--model` vide.
+- **Le verrou d'instance unique fait sortir l'instance perdante par `app.exit(0)`**, pas
+  `app.quit()` : `quit()` est asynchrone et n'interrompt pas le script, donc l'instance condamnée
+  continuait dans `bootstrap()` et ouvrait le `draft.md` et le `settings.json` que l'instance
+  gagnante écrit déjà. Corollaire à connaître : le verrou est indexé sur `userData`, que tous les
+  builds packagés partagent, donc **lancer une nouvelle version pendant qu'une ancienne tourne
+  affiche la fenêtre de l'ancienne** sans rien signaler. D'où la version affichée en barre de
+  statut.
+- **La page de réglages n'applique rien avant `Enregistrer`.** Les champs écrivent dans une copie
+  de travail (`structuredClone`), et `Annuler` comme `Échap` ferment sans rien appliquer, donc il
+  n'y a jamais rien à défaire. Une version antérieure écrivait à chaque `change` : un raccourci
+  global mal tapé était sans retour et le thème basculait pendant qu'on lisait les options.
 - **Le dev tourne sur son propre `userData`** (`-dev`), défini avant `requestSingleInstanceLock`.
   Le supprimer ferait écrire les tests dans les vrais brouillons et empêcherait de lancer les
   sources quand l'app installée est ouverte.
@@ -59,6 +106,12 @@ Ces points ont coûté du temps à diagnostiquer, ne pas les réintroduire :
   suisse romand, `Ctrl+Shift+7` arrive en `Ctrl+/` et déclenche le basculement de commentaire.
   Les chiffres sans `Shift` (`Ctrl+1..3`) sont stables.
 - **`Ctrl+Shift+O` n'atteint jamais le renderer** : Chromium le garde pour ses favoris.
+- **`Ctrl+,`, `Ctrl+M` et `Ctrl+L`** (réglages, notes, bibliothèque) : la virgule est non shiftée
+  sur un clavier suisse romand, et aucun des trois n'est réservé par `defaultKeymap`,
+  `searchKeymap` ni `historyKeymap`. ⚠️ `Ctrl+L` reste le moins sûr des trois, Chromium l'utilisant
+  pour la barre d'adresse dans un vrai navigateur : à revérifier si le panneau ne s'ouvre pas.
+- **L'icône des réglages est un jeu de curseurs, pas un engrenage.** Un engrenage a besoin de ses
+  dents pour être lisible ; à 14px elles fusionnent et le glyphe se lit comme un astérisque.
 - **`.cm-activeLine` se déclare dans `EditorView.theme`, pas dans la feuille de style.**
   `highlightActiveLine` fournit une règle `baseTheme` plus spécifique qu'un sélecteur de
   stylesheet, et son défaut est un lavis bleu hors palette.

@@ -7,11 +7,15 @@ export interface PanelButton {
   readonly onClick: () => void;
 }
 
+/** What the panel is currently showing. */
+export type PanelMode = 'hidden' | 'rewrite' | 'history' | 'notes' | 'prompts';
+
 /**
- * The single side panel, shared by the rewrite result and the history list.
+ * The single side panel, shared by the rewrite result, the history list and the two libraries.
  *
- * One panel rather than two keeps the popup from ever showing competing columns in a window
- * that may only be 820px wide.
+ * One panel rather than four keeps the popup from ever showing competing columns in a window
+ * that may only be 820px wide. Settings do not use it: a form with one model field per action
+ * needs more than 46% of the width, so it gets its own overlay.
  */
 export class SidePanel {
   private readonly root = requireElement<HTMLElement>('side-panel');
@@ -19,7 +23,7 @@ export class SidePanel {
   private readonly body = requireElement<HTMLDivElement>('side-panel-body');
   private readonly footer = requireElement<HTMLDivElement>('side-panel-footer');
   private readonly closeButton = requireElement<HTMLButtonElement>('panel-close');
-  private mode: 'hidden' | 'rewrite' | 'history' = 'hidden';
+  private mode: PanelMode = 'hidden';
   private onClose: (() => void) | null = null;
   /** Ticker of the pending placeholder, non-null only while one is displayed. */
   private pendingTicker: number | null = null;
@@ -28,7 +32,7 @@ export class SidePanel {
     this.closeButton.addEventListener('click', () => this.close());
   }
 
-  get currentMode(): 'hidden' | 'rewrite' | 'history' {
+  get currentMode(): PanelMode {
     return this.mode;
   }
 
@@ -37,7 +41,7 @@ export class SidePanel {
   }
 
   /** Opens the panel in a given mode, resetting its content. */
-  open(mode: 'rewrite' | 'history', title: string, onClose?: () => void): void {
+  open(mode: Exclude<PanelMode, 'hidden'>, title: string, onClose?: () => void): void {
     this.mode = mode;
     this.title.textContent = title;
     this.onClose = onClose ?? null;
@@ -140,6 +144,17 @@ export class SidePanel {
     this.stopPending();
     clearChildren(this.body);
     this.body.append(...nodes);
+  }
+
+  /**
+   * Puts ready-made nodes in the footer.
+   *
+   * `setActions` covers the plain "label plus handler" case. A stateful control, such as a button
+   * that arms itself before confirming, owns its own DOM and cannot be described by a spec.
+   */
+  setFooterNodes(...nodes: readonly Node[]): void {
+    clearChildren(this.footer);
+    this.footer.append(...nodes);
   }
 
   /** Rebuilds the footer actions. */

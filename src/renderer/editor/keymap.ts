@@ -15,6 +15,12 @@ export interface AppCommands {
   newPrompt: () => void;
   /** Toggle the history panel. */
   toggleHistory: () => void;
+  /** Toggle the notes panel. */
+  toggleNotes: () => void;
+  /** Toggle the prompt library panel. */
+  togglePrompts: () => void;
+  /** Toggle the settings overlay. */
+  toggleSettings: () => void;
   /** Step through light, dark and system. */
   cycleTheme: () => void;
   /** Close the open panel, or hide the window when there is none. */
@@ -30,7 +36,8 @@ export interface AppCommands {
  * keyboard `Shift+7` is physically the `/` key, so `Ctrl+Shift+7` arrives as `Ctrl+/` and gets
  * claimed by CodeMirror's comment toggle. Letters resolve identically on every layout.
  *
- * None collide with the app's own set (`Ctrl+Enter`, `Ctrl+R`, `Ctrl+N`, `Ctrl+H`).
+ * None collide with the app's own set (`Ctrl+Enter`, `Ctrl+R`, `Ctrl+N`, `Ctrl+H`, `Ctrl+M`,
+ * `Ctrl+L`, `Ctrl+,`).
  */
 const FORMAT_BINDINGS: readonly { key: string; command: MarkdownCommandId }[] = [
   { key: 'Mod-b', command: 'bold' },
@@ -66,6 +73,11 @@ export function createAppKeymap(commands: AppCommands): Extension {
     { key: 'Mod-Shift-r', run: () => run(commands.rewritePick), preventDefault: true },
     { key: 'Mod-n', run: () => run(commands.newPrompt), preventDefault: true },
     { key: 'Mod-h', run: () => run(commands.toggleHistory), preventDefault: true },
+    { key: 'Mod-m', run: () => run(commands.toggleNotes), preventDefault: true },
+    { key: 'Mod-l', run: () => run(commands.togglePrompts), preventDefault: true },
+    // `Mod-,` rather than a digit: the comma is unshifted on a Swiss/French layout, so it does
+    // not go through the same mangling that makes `Ctrl+Shift+7` arrive as `Ctrl+/`.
+    { key: 'Mod-,', run: () => run(commands.toggleSettings), preventDefault: true },
     { key: 'Mod-Shift-d', run: () => run(commands.cycleTheme), preventDefault: true },
     { key: 'Escape', run: () => run(commands.escape), preventDefault: true },
 

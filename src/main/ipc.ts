@@ -1,9 +1,11 @@
-import { clipboard, ipcMain } from 'electron';
+import { app, clipboard, ipcMain } from 'electron';
 import {
   IpcChannel,
   type AppSettings,
   type BootstrapState,
   type HistoryEntry,
+  type LibraryEntry,
+  type LibraryId,
   type RewriteRequest,
   type SnapshotReason,
   type ThemeMode,
@@ -15,16 +17,23 @@ import type { RewriteService } from './claude/rewrite-service.js';
 import { resetClaudePathCache } from './claude/claude-cli.js';
 import type { DraftStore } from './store/draft-store.js';
 import type { HistoryStore } from './store/history-store.js';
-import type { SettingsStore } from './store/settings-store.js';
+import type { LibraryStore } from './store/library-store.js';
+import { resolveModelForPreset, type SettingsStore } from './store/settings-store.js';
 
 export interface IpcDependencies {
   readonly drafts: DraftStore;
   readonly history: HistoryStore;
+  /** One store per library, which is also the whitelist the renderer's id is checked against. */
+  readonly libraries: Readonly<Record<LibraryId, LibraryStore>>;
   readonly settings: SettingsStore;
   readonly rewrites: RewriteService;
   readonly theme: ThemeController;
   readonly recovered: () => boolean;
+  readonly defaultDirectories: () => Readonly<Record<LibraryId, string>>;
+  readonly pickDirectory: (current: string) => Promise<string | null>;
   readonly hideWindow: () => void;
+  /** The deliberate exit: flush, final snapshot, save bounds, then quit. */
+  readonly quit: () => void;
   readonly setAlwaysOnTop: (pinned: boolean) => void;
   readonly onSettingsChanged: (settings: AppSettings, previous: AppSettings) => void;
 }
@@ -44,6 +53,8 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
       presets: mergePresets(settings.customPresets),
       recovered: deps.recovered(),
       theme: deps.theme.state(),
+      defaultDirectories: deps.defaultDirectories(),
+      appVersion: app.getVersion(),
     };
   });
 
@@ -80,6 +91,74 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
     return deps.history.read(id);
   });
 
+  ipcMain.handle(IpcChannel.HistoryClear, async (): Promise<number> => deps.history.clear());
+
+  /**
+   * Resolves the library the renderer named.
+   *
+   * The lookup is what keeps the discriminator safe: the renderer picks from a fixed set of
+   * stores rather than handing over a path, so an unexpected value fails here instead of
+   * reaching the filesystem.
+   */
+  const libraryOf = (value: unknown): LibraryStore => {
+    const store = value === 'notes' || value === 'prompts' ? deps.libraries[value] : undefined;
+    if (store === undefined) {
+      throw new Error(`Unknown library: ${String(value)}`);
+    }
+    return store;
+  };
+
+  ipcMain.handle(
+    IpcChannel.LibraryList,
+    async (_event, library: unknown): Promise<LibraryEntry[]> => libraryOf(library).list(),
+  );
+
+  ipcMain.handle(
+    IpcChannel.LibraryRead,
+    async (_event, library: unknown, id: unknown): Promise<string> => {
+      if (typeof id !== 'string') {
+        throw new Error('Document id must be a string');
+      }
+      return libraryOf(library).read(id);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannel.LibrarySave,
+    async (_event, library: unknown, text: unknown): Promise<LibraryEntry> => {
+      if (typeof text !== 'string') {
+        throw new Error('Document content must be a string');
+      }
+      return libraryOf(library).save(text);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannel.LibraryOverwrite,
+    async (_event, library: unknown, id: unknown, text: unknown): Promise<LibraryEntry> => {
+      if (typeof id !== 'string' || typeof text !== 'string') {
+        throw new Error('Document id and content must be strings');
+      }
+      return libraryOf(library).overwrite(id, text);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannel.LibraryDelete,
+    async (_event, library: unknown, id: unknown): Promise<void> => {
+      if (typeof id !== 'string') {
+        throw new Error('Document id must be a string');
+      }
+      await libraryOf(library).delete(id);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannel.PickDirectory,
+    async (_event, current: unknown): Promise<string | null> =>
+      deps.pickDirectory(typeof current === 'string' ? current : ''),
+  );
+
   ipcMain.handle(IpcChannel.ClipboardWrite, async (_event, text: unknown): Promise<void> => {
     if (typeof text === 'string') {
       // Written from the main process so the copy still lands even if the renderer's
@@ -89,6 +168,8 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
   });
 
   ipcMain.on(IpcChannel.WindowHide, () => deps.hideWindow());
+
+  ipcMain.on(IpcChannel.AppQuit, () => deps.quit());
 
   ipcMain.handle(IpcChannel.WindowSetAlwaysOnTop, async (_event, pinned: unknown): Promise<void> => {
     const value = pinned === true;
@@ -120,7 +201,8 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
       requestId: parsed.requestId,
       text: parsed.text,
       preset: resolvePreset(presets, parsed.presetId),
-      model: settings.model,
+      // Per-action override when there is one, the global default otherwise.
+      model: resolveModelForPreset(settings, parsed.presetId),
       maxBudgetUsd: settings.maxBudgetUsd,
       claudePath: settings.claudePath,
     });
@@ -167,11 +249,24 @@ function asSettingsPatch(value: unknown): Partial<AppSettings> {
   if (typeof input.openAtLogin === 'boolean') patch.openAtLogin = input.openAtLogin;
   if (typeof input.fontSize === 'number') patch.fontSize = input.fontSize;
   if (typeof input.model === 'string') patch.model = input.model;
+  if (isModelMap(input.modelByPresetId)) patch.modelByPresetId = input.modelByPresetId;
   if (typeof input.claudePath === 'string') patch.claudePath = input.claudePath;
   if (typeof input.defaultPresetId === 'string') patch.defaultPresetId = input.defaultPresetId;
   if (typeof input.maxBudgetUsd === 'number') patch.maxBudgetUsd = input.maxBudgetUsd;
+  if (typeof input.notesDirectory === 'string') patch.notesDirectory = input.notesDirectory;
+  if (typeof input.promptsDirectory === 'string') patch.promptsDirectory = input.promptsDirectory;
 
   return patch;
+}
+
+/**
+ * Shallow shape check on the per-action model map.
+ *
+ * `sanitizeSettings` does the real normalising; this only keeps a non-object from reaching it as
+ * a patch value, since a patch merges over the stored settings before sanitisation runs.
+ */
+function isModelMap(value: unknown): value is Record<string, string> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function asRewriteRequest(value: unknown): RewriteRequest | null {
