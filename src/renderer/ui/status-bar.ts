@@ -2,7 +2,7 @@ import { requireElement } from './dom.js';
 import { formatCount } from './token-count.js';
 
 /**
- * The bottom bar: size of the draft, save state, and the last transient message.
+ * The bottom bar: size of the draft, save state, and the last ambient message.
  *
  * The token estimate deliberately lives elsewhere, in the editor badge: showing the same
  * number twice, twenty pixels apart, is noise rather than reassurance.
@@ -33,9 +33,14 @@ export class StatusBar {
     this.save.textContent = 'modifié…';
   }
 
-  setMessage(message: string, isError = false): void {
+  /**
+   * Shows the last ambient message.
+   *
+   * Never an error: this slot is 11px, faint and truncated, which is the wrong place for
+   * something that has to be read and acted on. Failures go to the toast instead.
+   */
+  setMessage(message: string): void {
     this.message.textContent = message;
-    this.message.classList.toggle('statusbar__message--error', isError);
   }
 
   private renderSaved(): void {

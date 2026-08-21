@@ -13,12 +13,12 @@ export interface AppCommands {
   rewritePick: () => void;
   /** Archive the current text, then clear the editor. */
   newPrompt: () => void;
-  /** Toggle the history panel. */
-  toggleHistory: () => void;
-  /** Toggle the notes panel. */
-  toggleNotes: () => void;
-  /** Toggle the prompt library panel. */
-  togglePrompts: () => void;
+  /** Toggle the library panel, on whichever tab was last used. */
+  toggleLibrary: () => void;
+  /** Show the notes tab of the library panel, or close it when already there. */
+  showNotes: () => void;
+  /** Show the history tab of the library panel, or close it when already there. */
+  showHistory: () => void;
   /** Toggle the settings overlay. */
   toggleSettings: () => void;
   /** Step through light, dark and system. */
@@ -72,9 +72,11 @@ export function createAppKeymap(commands: AppCommands): Extension {
     { key: 'Mod-r', run: () => run(commands.rewriteDefault), preventDefault: true },
     { key: 'Mod-Shift-r', run: () => run(commands.rewritePick), preventDefault: true },
     { key: 'Mod-n', run: () => run(commands.newPrompt), preventDefault: true },
-    { key: 'Mod-h', run: () => run(commands.toggleHistory), preventDefault: true },
-    { key: 'Mod-m', run: () => run(commands.toggleNotes), preventDefault: true },
-    { key: 'Mod-l', run: () => run(commands.togglePrompts), preventDefault: true },
+    // `Mod-l` opens the panel itself; the other two land straight on a tab, so the direct
+    // access the three separate toolbar buttons used to give is not lost with them.
+    { key: 'Mod-l', run: () => run(commands.toggleLibrary), preventDefault: true },
+    { key: 'Mod-h', run: () => run(commands.showHistory), preventDefault: true },
+    { key: 'Mod-m', run: () => run(commands.showNotes), preventDefault: true },
     // `Mod-,` rather than a digit: the comma is unshifted on a Swiss/French layout, so it does
     // not go through the same mangling that makes `Ctrl+Shift+7` arrive as `Ctrl+/`.
     { key: 'Mod-,', run: () => run(commands.toggleSettings), preventDefault: true },

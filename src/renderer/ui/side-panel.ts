@@ -10,16 +10,40 @@ export interface PanelButton {
 /** What the panel is currently showing. */
 export type PanelMode = 'hidden' | 'rewrite' | 'history' | 'notes' | 'prompts';
 
+/** One tab of the strip, used when the panel shows something that has siblings. */
+export interface PanelTab {
+  /** The mode this tab displays, which is how the strip knows it is the selected one. */
+  readonly id: PanelMode;
+  readonly label: string;
+  readonly onSelect: () => void;
+}
+
+export interface SidePanelOptions {
+  /**
+   * Called on every open and close.
+   *
+   * The toolbar opener has to mirror the panel, and the panel closes from half a dozen places
+   * (Escape, its own close button, applying a rewrite, loading a note). Pushing the mode out
+   * from here is the only way the button cannot fall out of step.
+   */
+  readonly onModeChange: (mode: PanelMode) => void;
+}
+
 /**
  * The single side panel, shared by the rewrite result, the history list and the two libraries.
  *
  * One panel rather than four keeps the popup from ever showing competing columns in a window
  * that may only be 820px wide. Settings do not use it: a form with one model field per action
  * needs more than 46% of the width, so it gets its own overlay.
+ *
+ * The three stores share the panel, so they are mutually exclusive, and that is now said in the
+ * shape of the thing: one opener in the toolbar, a tab strip inside. Three separate toolbar
+ * buttons for one panel could not express it, and none of them could show that it was active.
  */
 export class SidePanel {
   private readonly root = requireElement<HTMLElement>('side-panel');
   private readonly title = requireElement<HTMLSpanElement>('side-panel-title');
+  private readonly tabs = requireElement<HTMLDivElement>('side-panel-tabs');
   private readonly body = requireElement<HTMLDivElement>('side-panel-body');
   private readonly footer = requireElement<HTMLDivElement>('side-panel-footer');
   private readonly closeButton = requireElement<HTMLButtonElement>('panel-close');
@@ -28,7 +52,7 @@ export class SidePanel {
   /** Ticker of the pending placeholder, non-null only while one is displayed. */
   private pendingTicker: number | null = null;
 
-  constructor() {
+  constructor(private readonly options: SidePanelOptions) {
     this.closeButton.addEventListener('click', () => this.close());
   }
 
@@ -49,7 +73,11 @@ export class SidePanel {
     clearChildren(this.body);
     clearChildren(this.footer);
     this.body.classList.remove('side-panel__body--streaming');
+    // Cleared like the body and the footer: a mode with siblings re-declares its strip right
+    // after opening, and one without (a rewrite) must not inherit the previous mode's tabs.
+    this.setTabs(null);
     this.root.hidden = false;
+    this.options.onModeChange(mode);
   }
 
   close(): void {
@@ -63,7 +91,32 @@ export class SidePanel {
     this.stopPending();
     clearChildren(this.body);
     clearChildren(this.footer);
+    this.setTabs(null);
+    this.options.onModeChange('hidden');
     callback?.();
+  }
+
+  /**
+   * Draws the tab strip, or hides it when given null.
+   *
+   * The selected tab is derived from the panel's own mode rather than passed in, so the strip
+   * cannot disagree with what is on screen: there is no second source of truth to keep in step.
+   */
+  setTabs(tabs: readonly PanelTab[] | null): void {
+    clearChildren(this.tabs);
+    if (tabs === null || tabs.length === 0) {
+      this.tabs.hidden = true;
+      return;
+    }
+    for (const tab of tabs) {
+      const button = createElement('button', { className: 'side-panel__tab', text: tab.label });
+      button.type = 'button';
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-selected', String(tab.id === this.mode));
+      button.addEventListener('click', tab.onSelect);
+      this.tabs.append(button);
+    }
+    this.tabs.hidden = false;
   }
 
   /**

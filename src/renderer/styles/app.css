@@ -249,6 +249,42 @@ body {
   color: var(--text-faint);
 }
 
+/* A tab strip rather than three toolbar buttons. Three mutually exclusive buttons sitting
+   outside the panel could never show which one was active; a tab can only be understood as one
+   of a set, so the state comes with the shape. */
+.side-panel__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 6px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.side-panel__tabs[hidden] {
+  display: none;
+}
+
+.side-panel__tab {
+  padding: 6px 9px 5px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-faint);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.side-panel__tab:hover {
+  color: var(--text);
+}
+
+.side-panel__tab[aria-selected='true'] {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+
 .side-panel__body {
   flex: 1;
   min-height: 0;
@@ -476,10 +512,6 @@ body {
   white-space: nowrap;
 }
 
-.statusbar__message--error {
-  color: var(--danger);
-}
-
 /* Pushed hard right, dimmer than the rest: reference information, not a status. */
 .statusbar__version {
   color: var(--text-faint);
@@ -502,6 +534,21 @@ body {
   font-size: 12px;
   box-shadow: var(--shadow);
   pointer-events: none;
+}
+
+/* Failures used to go to the status bar: 11px, faint, nowrap with an ellipsis, and never
+   cleared, while a successful copy got this centred pill. The channel carrying a failure has to
+   be the loud one, so errors land here instead. They get no timeout, wrap onto several lines and
+   are dismissed by a click, which is why this variant re-enables pointer events. */
+.toast--error {
+  max-width: 90%;
+  border-radius: var(--radius);
+  border-color: var(--danger);
+  color: var(--danger);
+  text-align: left;
+  white-space: pre-wrap;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .toast[hidden] {
@@ -800,12 +847,6 @@ body {
   display: none;
 }
 
-/* A quit that is not a hide, so it must not read like the minimise beside it. */
-.icon-button--quit:hover {
-  background: var(--danger);
-  color: var(--white);
-}
-
 .settings-page__footer {
   display: flex;
   align-items: center;
@@ -816,8 +857,12 @@ body {
   background: var(--surface-raised);
 }
 
-.settings-page__dirty {
+/* Far left, so the deliberate exit is nowhere near the button you came here to press. */
+.settings-page__quit {
   margin-right: auto;
+}
+
+.settings-page__dirty {
   color: var(--warning);
   font-size: 11px;
 }

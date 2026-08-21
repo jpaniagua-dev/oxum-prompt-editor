@@ -29,7 +29,7 @@ import {
   renderLibraryList,
 } from './ui/library-panel.js';
 import { SettingsPage } from './ui/settings-page.js';
-import { SidePanel } from './ui/side-panel.js';
+import { SidePanel, type PanelMode } from './ui/side-panel.js';
 import { StatusBar } from './ui/status-bar.js';
 import { Toast } from './ui/toast.js';
 import { TokenBadge } from './ui/token-badge.js';
@@ -41,7 +41,9 @@ class App {
   private readonly statusBar = new StatusBar();
   private readonly tokenBadge = new TokenBadge();
   private readonly toast = new Toast();
-  private readonly panel = new SidePanel();
+  private readonly panel = new SidePanel({
+    onModeChange: (mode) => this.reflectLibraryButton(mode),
+  });
 
   private readonly settingsPage = new SettingsPage({
     onSave: (settings) => void this.applySettings(settings),
@@ -55,6 +57,8 @@ class App {
   private theme: ThemeState = { mode: 'system', resolved: 'light' };
   /** Default folder per library, for the settings placeholders and the empty panels. */
   private defaultDirectories: Record<LibraryId, string> = { notes: '', prompts: '' };
+  /** Tab the panel reopens on: it is a place you come back to, and the three are not alike. */
+  private lastLibraryTab: LibraryTab = 'prompts';
 
   /** Id of the rewrite in flight, used to ignore events from a cancelled one. */
   private activeRewriteId: string | null = null;
@@ -88,9 +92,9 @@ class App {
         rewriteDefault: () => void this.startRewrite(this.currentPresetId()),
         rewritePick: () => this.focusPresetSelect(),
         newPrompt: () => void this.newPrompt(),
-        toggleHistory: () => void this.toggleHistory(),
-        toggleNotes: () => void this.toggleLibrary('notes'),
-        togglePrompts: () => void this.toggleLibrary('prompts'),
+        toggleLibrary: () => void this.toggleLibraryPanel(),
+        showNotes: () => void this.showLibraryTab('notes'),
+        showHistory: () => void this.showLibraryTab('history'),
         toggleSettings: () => this.toggleSettings(),
         cycleTheme: () => void this.cycleTheme(),
         escape: () => this.handleEscape(),
@@ -251,13 +255,58 @@ class App {
 
   /* -------------------------------------------------------------- libraries */
 
-  private async toggleLibrary(library: LibraryId): Promise<void> {
-    if (this.panel.currentMode === library) {
+  /**
+   * Opens or closes the library panel.
+   *
+   * The three stores share one panel, so one opener is enough and three were unable to say which
+   * of them was active. Reopening lands on the last tab used rather than always the first.
+   */
+  private async toggleLibraryPanel(): Promise<void> {
+    if (isLibraryTab(this.panel.currentMode)) {
       this.panel.close();
       this.editor?.focus();
       return;
     }
-    await this.openLibrary(library);
+    await this.openLibraryTab(this.lastLibraryTab);
+  }
+
+  /** Shows a tab, or closes the panel when that tab is already the one on screen. */
+  private async showLibraryTab(tab: LibraryTab): Promise<void> {
+    if (this.panel.currentMode === tab) {
+      this.panel.close();
+      this.editor?.focus();
+      return;
+    }
+    await this.openLibraryTab(tab);
+  }
+
+  /** Shows a tab unconditionally, which is what the strip itself needs. */
+  private async openLibraryTab(tab: LibraryTab): Promise<void> {
+    this.lastLibraryTab = tab;
+    if (tab === 'history') {
+      await this.openHistory();
+      return;
+    }
+    await this.openLibrary(tab);
+  }
+
+  /** Redraws the strip. The panel derives the selected tab from its own mode. */
+  private renderLibraryTabs(): void {
+    this.panel.setTabs(
+      LIBRARY_TABS.map((tab) => ({
+        id: tab,
+        label: TAB_LABELS[tab],
+        onSelect: () => void this.openLibraryTab(tab),
+      })),
+    );
+  }
+
+  /** Keeps the toolbar opener in step with the panel, whichever path opened or closed it. */
+  private reflectLibraryButton(mode: PanelMode): void {
+    requireElement<HTMLButtonElement>('library-button').setAttribute(
+      'aria-pressed',
+      String(isLibraryTab(mode)),
+    );
   }
 
   /**
@@ -271,6 +320,7 @@ class App {
     const spec = LIBRARIES[library];
     const entries = await window.api.listLibrary(library);
     this.panel.open(library, `${spec.title} · ${entries.length}`);
+    this.renderLibraryTabs();
 
     this.panel.setContent(
       entries.length === 0
@@ -309,7 +359,7 @@ class App {
       await this.openLibrary(library);
       this.toast.show(`Enregistré : ${entry.id}`);
     } catch (error) {
-      this.statusBar.setMessage(`enregistrement impossible: ${describeError(error)}`, true);
+      this.toast.error(`enregistrement impossible: ${describeError(error)}`);
     }
   }
 
@@ -333,7 +383,7 @@ class App {
       await window.api.writeClipboard(text);
       this.toast.show('Prompt copié, collez avec Ctrl+V');
     } catch (error) {
-      this.statusBar.setMessage(`lecture impossible: ${describeError(error)}`, true);
+      this.toast.error(`lecture impossible: ${describeError(error)}`);
     }
   }
 
@@ -359,7 +409,7 @@ class App {
       this.editor.focus();
       this.toast.show('Note chargée · Ctrl+Z pour revenir');
     } catch (error) {
-      this.statusBar.setMessage(`lecture impossible: ${describeError(error)}`, true);
+      this.toast.error(`lecture impossible: ${describeError(error)}`);
     }
   }
 
@@ -377,7 +427,7 @@ class App {
       await this.openLibrary(library);
       this.toast.show('Contenu remplacé');
     } catch (error) {
-      this.statusBar.setMessage(`écriture impossible: ${describeError(error)}`, true);
+      this.toast.error(`écriture impossible: ${describeError(error)}`);
     }
   }
 
@@ -387,7 +437,7 @@ class App {
       await this.openLibrary(library);
       this.toast.show('Supprimé');
     } catch (error) {
-      this.statusBar.setMessage(`suppression impossible: ${describeError(error)}`, true);
+      this.toast.error(`suppression impossible: ${describeError(error)}`);
     }
   }
 
@@ -643,9 +693,10 @@ class App {
       return;
     }
 
+    // The panel already carries the message in full, beside the button that retries it, and it
+    // stays until the panel is closed. A toast on top would be the same error twice.
     this.panel.setError(message);
     this.panel.setActions([{ label: 'Relancer', onClick: () => void this.retryRewrite() }]);
-    this.statusBar.setMessage('échec de la réécriture', true);
   }
 
   /**
@@ -685,19 +736,10 @@ class App {
 
   /* ---------------------------------------------------------------- history */
 
-  private async toggleHistory(): Promise<void> {
-    if (this.panel.currentMode === 'history') {
-      this.panel.close();
-      this.editor?.focus();
-      return;
-    }
-
-    await this.openHistory();
-  }
-
   private async openHistory(): Promise<void> {
     const entries = await window.api.listHistory();
     this.panel.open('history', `Historique · ${entries.length}`);
+    this.renderLibraryTabs();
 
     if (entries.length === 0) {
       this.panel.setContent(
@@ -736,7 +778,7 @@ class App {
       await this.openHistory();
       this.toast.show(removed === 0 ? 'Rien à supprimer' : `${removed} instantanés supprimés`);
     } catch (error) {
-      this.statusBar.setMessage(`suppression impossible: ${describeError(error)}`, true);
+      this.toast.error(`suppression impossible: ${describeError(error)}`);
     }
   }
 
@@ -770,7 +812,7 @@ class App {
       this.editor.focus();
       this.toast.show('Instantané restauré');
     } catch (error) {
-      this.statusBar.setMessage(`lecture impossible: ${describeError(error)}`, true);
+      this.toast.error(`lecture impossible: ${describeError(error)}`);
     }
   }
 
@@ -799,21 +841,16 @@ class App {
     requireElement<HTMLButtonElement>('new-button').addEventListener('click', () => {
       void this.newPrompt();
     });
-    requireElement<HTMLButtonElement>('history-button').addEventListener('click', () => {
-      void this.toggleHistory();
-    });
-    requireElement<HTMLButtonElement>('notes-button').addEventListener('click', () => {
-      void this.toggleLibrary('notes');
-    });
-    requireElement<HTMLButtonElement>('prompts-button').addEventListener('click', () => {
-      void this.toggleLibrary('prompts');
+    requireElement<HTMLButtonElement>('library-button').addEventListener('click', () => {
+      void this.toggleLibraryPanel();
     });
     requireElement<HTMLButtonElement>('settings-button').addEventListener('click', () => {
       this.toggleSettings();
     });
-    requireElement<HTMLButtonElement>('quit-button').addEventListener('click', () => {
+    requireElement<HTMLButtonElement>('settings-quit').addEventListener('click', () => {
       // Goes to the main process, which flushes the draft, archives a last snapshot and saves
-      // the bounds before exiting. Nothing is lost, so no confirmation is warranted.
+      // the bounds before exiting. Nothing is lost, so no confirmation is warranted. It lives in
+      // the settings page, not the titlebar: there it was one 26px target away from the hide.
       window.api.quitApp();
     });
     requireElement<HTMLButtonElement>('rewrite-button').addEventListener('click', () => {
@@ -842,13 +879,32 @@ const LIBRARIES: Readonly<
     activateHint: 'Charger dans l’éditeur',
   },
   prompts: {
-    title: 'Bibliothèque',
+    title: 'Prompts',
     empty:
-      'Aucun prompt enregistré. « Enregistrer le prompt » range le brouillon courant ici, pour le recopier ensuite en un clic.',
-    saveLabel: 'Enregistrer le prompt',
+      'Aucun prompt enregistré. « Enregistrer le brouillon » le range ici, pour le recopier ensuite en un clic.',
+    // Same label in both tabs: what is saved is always the draft, and the active tab already
+    // says where it lands. Two different verbs for one buffer only invited the question.
+    saveLabel: 'Enregistrer le brouillon',
     activateHint: 'Copier dans le presse-papier',
   },
 };
+
+/** The three stores sharing the side panel, in tab order. */
+type LibraryTab = LibraryId | 'history';
+
+const LIBRARY_TABS: readonly LibraryTab[] = ['prompts', 'notes', 'history'];
+
+/** Tab labels. The panel header repeats the active one, with its count. */
+const TAB_LABELS: Readonly<Record<LibraryTab, string>> = {
+  prompts: 'Prompts',
+  notes: 'Notes',
+  history: 'Historique',
+};
+
+/** Narrows a panel mode to a library tab, for the opener state and the toggles. */
+function isLibraryTab(mode: PanelMode): mode is LibraryTab {
+  return mode === 'prompts' || mode === 'notes' || mode === 'history';
+}
 
 /** Picker groups, in display order. The label says what the preset *produces*. */
 const PRESET_GROUPS: readonly (readonly [PresetKind, string])[] = [

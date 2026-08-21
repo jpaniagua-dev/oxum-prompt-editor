@@ -64,22 +64,20 @@
               />
             </svg>
           </button>
-          <button type="button" id="hide-button" class="icon-button" title="Masquer (Échap)">
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M3 7.2h10v1.6H3z" />
-            </svg>
-          </button>
           <!--
-            A real quit, not a window close: it goes to the main process, which flushes the
-            draft, takes a last snapshot and saves the bounds before exiting. The minus above
-            only hides.
+            The X hides, it does not quit. Thirty years of Windows send the cursor here to
+            dismiss a popup, and this app is built around a window that hides rather than
+            closes. A real quit in this position killed the tray daemon on a misclick, leaving
+            nothing on screen to explain why the global shortcut had stopped answering. Quitting
+            now lives in the tray menu and at the foot of the settings page, both reached on
+            purpose.
           -->
           <button
             type="button"
-            id="quit-button"
-            class="icon-button icon-button--quit"
-            title="Quitter (le brouillon est enregistré)"
-            aria-label="Quitter l’application"
+            id="hide-button"
+            class="icon-button"
+            title="Masquer (Échap)"
+            aria-label="Masquer la fenêtre"
           >
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M4.3 3.3l8.4 8.4-1 1-8.4-8.4zM12.7 4.3l-8.4 8.4-1-1 8.4-8.4z" />
@@ -117,6 +115,17 @@
               </svg>
             </button>
           </div>
+          <!--
+            Tab strip for the three stores. It sits outside the body so it does not scroll away
+            with the content, and stays hidden in rewrite mode, which has no sibling to switch to.
+          -->
+          <div
+            class="side-panel__tabs"
+            id="side-panel-tabs"
+            role="tablist"
+            aria-label="Bibliothèque"
+            hidden
+          ></div>
           <div class="side-panel__body" id="side-panel-body"></div>
           <div class="side-panel__footer" id="side-panel-footer"></div>
         </aside>
@@ -143,6 +152,17 @@
           </div>
           <div class="settings-page__body" id="settings-page-body"></div>
           <div class="settings-page__footer">
+            <!--
+              The deliberate quit path: a page you opened on purpose, not a 26px target beside
+              the one that merely hides. The tray menu carries the same action.
+            -->
+            <button
+              type="button"
+              id="settings-quit"
+              class="button button--quiet settings-page__quit"
+            >
+              Quitter l’application
+            </button>
             <span class="settings-page__dirty" id="settings-dirty"></span>
             <button type="button" id="settings-cancel" class="button">Annuler</button>
             <button type="button" id="settings-save" class="button button--primary" disabled>
@@ -154,7 +174,7 @@
 
       <footer class="toolbar">
         <div class="toolbar__group">
-          <button type="button" id="rewrite-button" class="button button--primary">
+          <button type="button" id="rewrite-button" class="button button--accent">
             Rédiger le prompt
           </button>
           <select
@@ -165,24 +185,34 @@
           ></select>
         </div>
         <div class="toolbar__group">
+          <!--
+            One opener for the three stores. They share a single panel and are therefore
+            mutually exclusive, which three separate toolbar buttons could not express: none of
+            them could show that it was the active one. The tab strip inside the panel gets that
+            for free, and the vocabulary collapses to one container name.
+          -->
           <button
             type="button"
-            id="prompts-button"
+            id="library-button"
             class="button"
-            title="Bibliothèque de prompts (Ctrl+L)"
+            title="Bibliothèque : prompts, notes, historique (Ctrl+L)"
+            aria-pressed="false"
           >
-            Prompts
-          </button>
-          <button type="button" id="notes-button" class="button" title="Notes (Ctrl+M)">
-            Notes
-          </button>
-          <button type="button" id="history-button" class="button" title="Historique (Ctrl+H)">
-            Historique
+            Bibliothèque
           </button>
           <button type="button" id="new-button" class="button" title="Nouveau prompt (Ctrl+N)">
             Nouveau
           </button>
-          <button type="button" id="copy-button" class="button button--accent" title="Copier et masquer (Ctrl+Entrée)">
+          <!--
+            The only filled button in the window. Copying ends every single session; rewriting is
+            an occasional assist, so it no longer outranks it visually.
+          -->
+          <button
+            type="button"
+            id="copy-button"
+            class="button button--primary"
+            title="Copier et masquer (Ctrl+Entrée)"
+          >
             Copier
           </button>
         </div>
