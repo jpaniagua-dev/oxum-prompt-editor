@@ -221,6 +221,220 @@ body {
   display: none;
 }
 
+/* ----------------------------------------------------------------- preview */
+
+/*
+ * The rendered document.
+ *
+ * Deliberately typeset as prose and not as a web page: the UI face rather than the editor's
+ * monospace, a measure capped around 68 characters, and vertical rhythm built from one spacing
+ * step. What it is *for* is judging how a prompt will read once an agent renders it, so it
+ * borrows the same `--md-*` tokens the editor highlights with. A heading is the same colour in
+ * both views, which is what makes switching feel like one document rather than two.
+ */
+.preview {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 18px 22px 40px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.62;
+  user-select: text;
+}
+
+.preview > * {
+  max-width: 68ch;
+}
+
+.preview > * + * {
+  margin-top: 0.85em;
+}
+
+.preview h1,
+.preview h2,
+.preview h3,
+.preview h4,
+.preview h5,
+.preview h6 {
+  margin: 1.5em 0 0;
+  color: var(--md-heading);
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.preview > :first-child {
+  margin-top: 0;
+}
+
+.preview h1 {
+  font-size: 1.65em;
+  /* The only rule in the document: a title is a boundary, the levels below are just weight. */
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--border);
+}
+
+.preview h2 {
+  font-size: 1.32em;
+}
+
+.preview h3 {
+  font-size: 1.13em;
+}
+
+.preview h4,
+.preview h5,
+.preview h6 {
+  font-size: 1em;
+  color: var(--text-dim);
+}
+
+.preview ul,
+.preview ol {
+  padding-left: 1.5em;
+}
+
+.preview li + li {
+  margin-top: 0.2em;
+}
+
+.preview li::marker {
+  color: var(--md-list);
+}
+
+/* A tight list item holds a single paragraph, which must not open a gap the source did not
+   have. An item with several paragraphs is a loose one, and there the spacing is intended. */
+.preview li > p:only-child {
+  margin: 0;
+}
+
+.preview li > p + p,
+.preview li > ul,
+.preview li > ol {
+  margin-top: 0.35em;
+}
+
+/* The checkbox replaces the `[x]`, so it sits in the marker's place rather than in the text. */
+.preview__task {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+}
+
+.preview__task input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.preview blockquote {
+  padding-left: 0.9em;
+  border-left: 3px solid var(--primary-border);
+  color: var(--md-quote);
+}
+
+.preview hr {
+  height: 1px;
+  margin: 1.6em 0;
+  border: 0;
+  background: var(--border);
+}
+
+.preview__inline-code {
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  color: var(--md-mono);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.preview__code,
+.preview__raw {
+  overflow-x: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* Raw HTML is shown, not run. Saying so with a muted, dashed frame keeps that unambiguous. */
+.preview__raw {
+  border-style: dashed;
+  color: var(--text-faint);
+}
+
+.preview__table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.preview__table th,
+.preview__table td {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.preview__table th {
+  background: var(--surface-inset);
+  font-weight: 600;
+}
+
+.preview__link {
+  color: var(--md-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* A link the app will not follow — a bare relative path, or a scheme it refuses to hand to the
+   shell. Underlined as a dotted hint so it still reads as a link that simply does not act. */
+.preview__link--inert {
+  color: var(--text-dim);
+  text-decoration-style: dotted;
+  cursor: help;
+}
+
+/* Images are chips rather than pictures: the renderer's CSP allows none of the sources a
+   Markdown image points at, so a real `<img>` would only ever show a broken icon. */
+.preview__image {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.1em 0.5em;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 0.9em;
+}
+
+.preview__image::before {
+  content: '▣';
+  color: var(--text-faint);
+}
+
+.preview__empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* Same reasoning as the settings page: the formatting bar acts on a surface that is no longer
+   on screen. The toolbar stays, because copying and opening still make sense while reading. */
+.app--preview .format-bar,
+.app--preview .editor,
+.app--preview .token-badge {
+  display: none;
+}
+
 /* -------------------------------------------------------------- side panel */
 
 .side-panel {
@@ -503,6 +717,38 @@ body {
   color: var(--text-faint);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The file currently bound to the draft.
+ *
+ * A button rather than a label, because it is the discoverable half of Ctrl+S: the status bar is
+ * where you look to find out whether what you typed has landed, so the affordance to make it
+ * land belongs in the same place. The dot is the whole unsaved-changes indicator.
+ */
+.statusbar__file {
+  max-width: 26ch;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.statusbar__file:hover {
+  color: var(--primary);
+}
+
+.statusbar__file--modified {
+  color: var(--warning);
+}
+
+.statusbar__file--modified::after {
+  content: ' •';
 }
 
 .statusbar__message {

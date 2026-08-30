@@ -1,11 +1,13 @@
-import { app, clipboard, ipcMain } from 'electron';
+import { app, clipboard, ipcMain, shell } from 'electron';
 import {
   IpcChannel,
   type AppSettings,
   type BootstrapState,
+  type ExternalFile,
   type HistoryEntry,
   type LibraryEntry,
   type LibraryId,
+  type OpenedFile,
   type RewriteRequest,
   type SnapshotReason,
   type ThemeMode,
@@ -16,6 +18,7 @@ import { mergePresets, resolvePreset } from './claude/presets.js';
 import type { RewriteService } from './claude/rewrite-service.js';
 import { resetClaudePathCache } from './claude/claude-cli.js';
 import type { DraftStore } from './store/draft-store.js';
+import type { FileStore } from './store/file-store.js';
 import type { HistoryStore } from './store/history-store.js';
 import type { LibraryStore } from './store/library-store.js';
 import { resolveModelForPreset, type SettingsStore } from './store/settings-store.js';
@@ -25,6 +28,8 @@ export interface IpcDependencies {
   readonly history: HistoryStore;
   /** One store per library, which is also the whitelist the renderer's id is checked against. */
   readonly libraries: Readonly<Record<LibraryId, LibraryStore>>;
+  /** Markdown files the user opened from anywhere on the disk. */
+  readonly files: FileStore;
   readonly settings: SettingsStore;
   readonly rewrites: RewriteService;
   readonly theme: ThemeController;
@@ -152,6 +157,42 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
       await libraryOf(library).delete(id);
     },
   );
+
+  ipcMain.handle(IpcChannel.FileOpen, async (): Promise<OpenedFile | null> => deps.files.open());
+
+  ipcMain.handle(
+    IpcChannel.FileSave,
+    async (_event, path: unknown, text: unknown): Promise<ExternalFile> => {
+      if (typeof path !== 'string' || typeof text !== 'string') {
+        throw new Error('File path and content must be strings');
+      }
+      return deps.files.save(path, text);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannel.FileSaveAs,
+    async (_event, text: unknown): Promise<ExternalFile | null> => {
+      if (typeof text !== 'string') {
+        throw new Error('File content must be a string');
+      }
+      return deps.files.saveAs(text);
+    },
+  );
+
+  /**
+   * Opens a link from the preview in the system browser.
+   *
+   * The scheme is checked here as well as in the renderer, on the principle that the main
+   * process never trusts what comes across the bridge: `shell.openExternal` will happily hand a
+   * `file:` URL to the shell, which is a launcher, not a viewer.
+   */
+  ipcMain.handle(IpcChannel.LinkOpen, async (_event, url: unknown): Promise<void> => {
+    if (typeof url !== 'string' || !/^(?:https?:|mailto:)/i.test(url)) {
+      return;
+    }
+    await shell.openExternal(url);
+  });
 
   ipcMain.handle(
     IpcChannel.PickDirectory,

@@ -1,6 +1,7 @@
 import type { EditorView } from '@codemirror/view';
 import type {
   AppSettings,
+  ExternalFile,
   HistoryEntry,
   LibraryEntry,
   LibraryId,
@@ -28,6 +29,7 @@ import {
   renderLibraryEmpty,
   renderLibraryList,
 } from './ui/library-panel.js';
+import { PreviewPane } from './ui/preview-pane.js';
 import { SettingsPage } from './ui/settings-page.js';
 import { SidePanel, type PanelMode } from './ui/side-panel.js';
 import { StatusBar } from './ui/status-bar.js';
@@ -38,11 +40,15 @@ import { TokenBadge } from './ui/token-badge.js';
 const MIRROR_KEY = 'oxum.draft.mirror';
 
 class App {
-  private readonly statusBar = new StatusBar();
+  private readonly statusBar = new StatusBar({ onSaveFile: () => void this.saveFile() });
   private readonly tokenBadge = new TokenBadge();
   private readonly toast = new Toast();
   private readonly panel = new SidePanel({
     onModeChange: (mode) => this.reflectLibraryButton(mode),
+  });
+
+  private readonly preview = new PreviewPane({
+    onLinkActivate: (url) => void this.openLink(url),
   });
 
   private readonly settingsPage = new SettingsPage({
@@ -59,6 +65,17 @@ class App {
   private defaultDirectories: Record<LibraryId, string> = { notes: '', prompts: '' };
   /** Tab the panel reopens on: it is a place you come back to, and the three are not alike. */
   private lastLibraryTab: LibraryTab = 'prompts';
+
+  /**
+   * The file on disk the draft is currently bound to, or null when it is just the draft.
+   *
+   * Session state on purpose, and dropped by every action that makes the buffer something other
+   * than that document: a new prompt, a note loaded, a snapshot restored. `Ctrl+S` must never
+   * overwrite a file with text that no longer came from it.
+   */
+  private openedFile: ExternalFile | null = null;
+  /** Whether the buffer has changed since the file was opened or last written. */
+  private fileModified = false;
 
   /** Id of the rewrite in flight, used to ignore events from a cancelled one. */
   private activeRewriteId: string | null = null;
@@ -117,11 +134,195 @@ class App {
     window.api.onThemeChanged((state) => this.applyTheme(state));
     window.api.onRequestFlush(() => this.flushToMain());
     window.addEventListener('beforeunload', () => this.flushToMain());
+    document.addEventListener('keydown', (event) => this.handleGlobalKeydown(event));
 
     if (bootstrap.recovered) {
       this.statusBar.setMessage('brouillon restauré');
     }
     focusAtEnd(this.editor);
+  }
+
+  /* ----------------------------------------------------------- global keys */
+
+  /**
+   * Bindings that must work even when the editor does not have focus.
+   *
+   * The app's own keymap is a CodeMirror extension, so it only fires while the caret is in the
+   * text, which in the preview it never is. These four live on the document instead. They cannot
+   * fire twice for one key: CodeMirror handles its own bindings first and calls `preventDefault`
+   * on what it took, and anything already handled is let through here untouched.
+   */
+  private handleGlobalKeydown(event: KeyboardEvent): void {
+    if (event.defaultPrevented) {
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.handleEscape();
+      return;
+    }
+    if (!event.ctrlKey && !event.metaKey) {
+      return;
+    }
+    // The settings page owns its own text fields, where these three would mean the wrong thing.
+    if (event.altKey || event.shiftKey || this.settingsPage.isOpen) {
+      return;
+    }
+
+    switch (event.key.toLowerCase()) {
+      case 'p':
+        event.preventDefault();
+        this.togglePreview();
+        break;
+      case 'o':
+        event.preventDefault();
+        void this.openFile();
+        break;
+      case 's':
+        event.preventDefault();
+        void this.saveFile();
+        break;
+      default:
+        break;
+    }
+  }
+
+  /* --------------------------------------------------------------- preview */
+
+  /** Swaps between writing the Markdown and reading it rendered. */
+  private togglePreview(): void {
+    if (this.preview.isOpen) {
+      this.exitPreview();
+      return;
+    }
+    if (this.editor === null) {
+      return;
+    }
+    // The settings overlay covers the whole workspace, so a preview underneath it is invisible.
+    if (this.settingsPage.isOpen) {
+      this.settingsPage.close();
+    }
+    requireElement<HTMLDivElement>('app-root').classList.add('app--preview');
+    this.preview.show(getText(this.editor));
+    this.reflectPreviewButton(true);
+    // Focus the pane itself, so its scrollbar answers the arrow keys straight away.
+    requireElement<HTMLDivElement>('preview').focus();
+  }
+
+  private exitPreview(): void {
+    if (!this.preview.isOpen) {
+      return;
+    }
+    this.preview.hide();
+    requireElement<HTMLDivElement>('app-root').classList.remove('app--preview');
+    this.reflectPreviewButton(false);
+    // CodeMirror measured itself while its container was display:none, so every height it
+    // cached is zero until it is asked to measure again.
+    this.editor?.requestMeasure();
+    this.editor?.focus();
+  }
+
+  private reflectPreviewButton(open: boolean): void {
+    const button = requireElement<HTMLButtonElement>('preview-button');
+    button.setAttribute('aria-pressed', String(open));
+    button.title = open ? 'Revenir à l’éditeur (Ctrl+P)' : 'Aperçu Markdown (Ctrl+P)';
+  }
+
+  /**
+   * Replaces the whole document, keeping whatever is on screen in step with it.
+   *
+   * Every path that swaps the buffer goes through here. A note can be loaded from the side panel
+   * while the preview is showing, and a preview left displaying the previous document would be
+   * the one place in the app where the screen lies about what is in the editor.
+   */
+  private replaceDocument(view: EditorView, text: string): void {
+    replaceAll(view, text);
+    if (this.preview.isOpen) {
+      this.preview.show(text);
+    }
+  }
+
+  /** Hands a link from the preview to the system browser. */
+  private async openLink(url: string): Promise<void> {
+    try {
+      await window.api.openExternalLink(url);
+    } catch (error) {
+      this.toast.error(`ouverture du lien impossible: ${describeError(error)}`);
+    }
+  }
+
+  /* ------------------------------------------------------------------ files */
+
+  /**
+   * Opens a Markdown file from anywhere on the disk and binds the draft to it.
+   *
+   * Same contract as loading a note: the current text is archived first and replaced in a single
+   * transaction, so `Ctrl+Z` brings it back. The difference is what happens afterwards, namely
+   * that the path is remembered and `Ctrl+S` writes straight back to it.
+   */
+  private async openFile(): Promise<void> {
+    if (this.editor === null) {
+      return;
+    }
+    try {
+      const file = await window.api.openFile();
+      if (file === null) {
+        return;
+      }
+      const current = getText(this.editor);
+      if (current.trim().length > 0) {
+        await window.api.snapshotDraft(current, 'restore');
+      }
+      this.replaceDocument(this.editor, file.text);
+      this.bindFile({ path: file.path, name: file.name }, false);
+      this.panel.close();
+      if (!this.preview.isOpen) {
+        this.editor.focus();
+      }
+      this.toast.show(`${file.name} ouvert · Ctrl+Z pour revenir`);
+    } catch (error) {
+      this.toast.error(`ouverture impossible: ${describeError(error)}`);
+    }
+  }
+
+  /**
+   * Writes the draft to the bound file, or asks where to put it when there is none.
+   *
+   * Falling back to the save dialog rather than doing nothing is what makes `Ctrl+S` mean the
+   * same thing at all times. It is also the only path after a restart: the authorisation to
+   * write to a given path lives in the main process and deliberately does not survive one.
+   */
+  private async saveFile(): Promise<void> {
+    if (this.editor === null) {
+      return;
+    }
+    const text = getText(this.editor);
+    if (text.trim().length === 0) {
+      this.toast.show('Rien à enregistrer');
+      return;
+    }
+    try {
+      const file =
+        this.openedFile === null
+          ? await window.api.saveFileAs(text)
+          : await window.api.saveFile(this.openedFile.path, text);
+
+      // Null only ever means the save dialog was dismissed, which is not a failure.
+      if (file === null) {
+        return;
+      }
+      this.bindFile(file, false);
+      this.statusBar.setMessage(`enregistré dans ${file.name}`);
+    } catch (error) {
+      this.toast.error(`enregistrement impossible: ${describeError(error)}`);
+    }
+  }
+
+  /** Binds, rebinds or unbinds the draft's file, and reflects it in the status bar. */
+  private bindFile(file: ExternalFile | null, modified: boolean): void {
+    this.openedFile = file;
+    this.fileModified = modified;
+    this.statusBar.setFile(file, modified);
   }
 
   /* ----------------------------------------------------------------- theme */
@@ -404,7 +605,8 @@ class App {
       if (current.trim().length > 0) {
         await window.api.snapshotDraft(current, 'restore');
       }
-      replaceAll(this.editor, text);
+      this.replaceDocument(this.editor, text);
+      this.bindFile(null, false);
       this.panel.close();
       this.editor.focus();
       this.toast.show('Note chargée · Ctrl+Z pour revenir');
@@ -479,6 +681,10 @@ class App {
     this.statusBar.updateCounts(text);
     this.tokenBadge.update(text);
     this.statusBar.markPending();
+    // The draft autosaves itself; the user's own file does not, so the chip has to say so.
+    if (this.openedFile !== null && !this.fileModified) {
+      this.bindFile(this.openedFile, true);
+    }
     // The main process debounce is 300ms; report saved slightly after it fires.
     window.setTimeout(() => this.statusBar.markSaved(), 400);
   }
@@ -523,7 +729,9 @@ class App {
       // and it is not actually destructive.
       await window.api.snapshotDraft(text, 'new');
     }
-    replaceAll(this.editor, '');
+    this.replaceDocument(this.editor, '');
+    // A new prompt is not the file that was open, and Ctrl+S must not overwrite it with this.
+    this.bindFile(null, false);
     this.editor.focus();
     this.statusBar.setMessage('nouveau prompt (l’ancien est dans l’historique)');
   }
@@ -538,6 +746,12 @@ class App {
     if (this.panel.isOpen) {
       this.panel.close();
       this.editor?.focus();
+      return;
+    }
+    // Before hiding: the preview is a mode you are in, and Escape is how every other mode in
+    // this window is left.
+    if (this.preview.isOpen) {
+      this.exitPreview();
       return;
     }
     window.api.hideWindow();
@@ -711,7 +925,9 @@ class App {
       return;
     }
     await window.api.snapshotDraft(getText(this.editor), 'rewrite');
-    replaceAll(this.editor, text);
+    // A rewrite keeps the file binding: it is the same document, reworded, and writing it back
+    // is exactly what the user is likely to do next.
+    this.replaceDocument(this.editor, text);
     this.panel.close();
     this.editor.focus();
     this.toast.show('Appliqué · Ctrl+Z pour revenir à ta version');
@@ -807,7 +1023,8 @@ class App {
       if (current.trim().length > 0) {
         await window.api.snapshotDraft(current, 'restore');
       }
-      replaceAll(this.editor, text);
+      this.replaceDocument(this.editor, text);
+      this.bindFile(null, false);
       this.panel.close();
       this.editor.focus();
       this.toast.show('Instantané restauré');
@@ -838,8 +1055,14 @@ class App {
     requireElement<HTMLButtonElement>('copy-button').addEventListener('click', () => {
       void this.copy({ hide: true });
     });
+    requireElement<HTMLButtonElement>('open-button').addEventListener('click', () => {
+      void this.openFile();
+    });
     requireElement<HTMLButtonElement>('new-button').addEventListener('click', () => {
       void this.newPrompt();
+    });
+    requireElement<HTMLButtonElement>('preview-button').addEventListener('click', () => {
+      this.togglePreview();
     });
     requireElement<HTMLButtonElement>('library-button').addEventListener('click', () => {
       void this.toggleLibraryPanel();

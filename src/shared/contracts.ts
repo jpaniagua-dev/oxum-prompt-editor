@@ -147,6 +147,26 @@ export interface LibraryEntry {
   readonly size: number;
 }
 
+/**
+ * A Markdown file living outside the app's own folders, opened through the native dialog.
+ *
+ * Distinct from a {@link LibraryEntry} on the one point that matters: the app did not create it
+ * and does not own its name. A library entry is addressed by an id the store generated and can
+ * validate; this one is addressed by an absolute path the user chose, which the main process
+ * therefore has to authorise explicitly rather than pattern-match.
+ */
+export interface ExternalFile {
+  /** Absolute path, as resolved by the main process. Shown in full only in a tooltip. */
+  readonly path: string;
+  /** Base name, e.g. `notes-reunion.md`, which is what the status bar displays. */
+  readonly name: string;
+}
+
+/** An {@link ExternalFile} together with its content, as returned by the open dialog. */
+export interface OpenedFile extends ExternalFile {
+  readonly text: string;
+}
+
 /** Payload restored at startup so the renderer can rebuild its exact previous state. */
 export interface BootstrapState {
   readonly draft: string;
@@ -224,6 +244,26 @@ export const IpcChannel = {
   LibraryOverwrite: 'library:overwrite',
   /** invoke: (library: LibraryId, id: string) => void */
   LibraryDelete: 'library:delete',
+  /*
+   * External files are addressed by absolute path, which the renderer must never be able to
+   * choose on its own. It cannot: a path only becomes usable once the *user* picked it in a
+   * native dialog, and the main process remembers which ones it handed out. `FileSave` rejects
+   * anything else, so the renderer can rewrite the file that was opened and nothing more.
+   */
+  /** invoke: () => OpenedFile | null, native open dialog then read */
+  FileOpen: 'file:open',
+  /** invoke: (path: string, text: string) => ExternalFile, path must have been authorised */
+  FileSave: 'file:save',
+  /**
+   * invoke: (text: string) => ExternalFile | null, native save dialog then write.
+   *
+   * The suggested file name is derived in the main process, by the same slug rule the library
+   * names its documents with, so a draft saved to disk and the same draft saved to the library
+   * come out under the same name.
+   */
+  FileSaveAs: 'file:save-as',
+  /** invoke: (url: string) => void, hands an http/https/mailto link to the system browser */
+  LinkOpen: 'link:open',
   /** invoke: (current: string) => string | null, native folder picker */
   PickDirectory: 'dialog:pick-directory',
   /** invoke: (text: string) => void, writes the clipboard from the main process */
@@ -281,6 +321,10 @@ export interface RendererApi {
   saveToLibrary(library: LibraryId, text: string): Promise<LibraryEntry>;
   overwriteLibraryEntry(library: LibraryId, id: string, text: string): Promise<LibraryEntry>;
   deleteLibraryEntry(library: LibraryId, id: string): Promise<void>;
+  openFile(): Promise<OpenedFile | null>;
+  saveFile(path: string, text: string): Promise<ExternalFile>;
+  saveFileAs(text: string): Promise<ExternalFile | null>;
+  openExternalLink(url: string): Promise<void>;
   pickDirectory(current: string): Promise<string | null>;
   writeClipboard(text: string): Promise<void>;
   hideWindow(): void;

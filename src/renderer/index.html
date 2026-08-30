@@ -21,6 +21,30 @@
           Prompt
         </span>
         <div class="titlebar__actions">
+          <!--
+            A view mode, not an action, so it belongs with the chrome rather than in the toolbar
+            beside the buttons that change the draft. Pressed state says which of the two views
+            is on screen, since the editor and the preview never show at the same time.
+          -->
+          <button
+            type="button"
+            id="preview-button"
+            class="icon-button"
+            title="Aperçu Markdown (Ctrl+P)"
+            aria-label="Afficher l’aperçu Markdown"
+            aria-pressed="false"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M1.3 8s2.5-4.4 6.7-4.4S14.7 8 14.7 8s-2.5 4.4-6.7 4.4S1.3 8 1.3 8z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.3"
+                stroke-linejoin="round"
+              />
+              <circle cx="8" cy="8" r="1.9" />
+            </svg>
+          </button>
           <button
             type="button"
             id="settings-button"
@@ -96,6 +120,18 @@
       <div class="workspace">
         <main class="editor-pane">
           <div id="editor" class="editor" aria-label="Éditeur de prompt"></div>
+          <!--
+            The rendered document, shown in place of the editor rather than beside it. The window
+            is often under 700px wide, and two columns at that width leaves two unreadable ones.
+          -->
+          <div
+            id="preview"
+            class="preview"
+            role="document"
+            aria-label="Aperçu Markdown"
+            tabindex="-1"
+            hidden
+          ></div>
           <div
             id="token-badge"
             class="token-badge"
@@ -200,6 +236,14 @@
           >
             Bibliothèque
           </button>
+          <button
+            type="button"
+            id="open-button"
+            class="button"
+            title="Ouvrir un fichier Markdown (Ctrl+O)"
+          >
+            Ouvrir
+          </button>
           <button type="button" id="new-button" class="button" title="Nouveau prompt (Ctrl+N)">
             Nouveau
           </button>
@@ -221,6 +265,12 @@
       <div class="statusbar">
         <span id="status-counts">0 car.</span>
         <span id="status-save" class="statusbar__save"></span>
+        <!--
+          Shown only while a file from outside the app is open. It is a button because it is also
+          the visible half of Ctrl+S: the one place that says both which file is bound and that
+          it has unsaved changes.
+        -->
+        <button type="button" id="status-file" class="statusbar__file" hidden></button>
         <span id="status-message" class="statusbar__message"></span>
         <span id="status-version" class="statusbar__version"></span>
       </div>

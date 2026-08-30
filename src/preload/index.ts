@@ -6,6 +6,8 @@ import {
   type HistoryEntry,
   type LibraryEntry,
   type LibraryId,
+  type ExternalFile,
+  type OpenedFile,
   type RendererApi,
   type RewriteEvent,
   type RewriteRequest,
@@ -50,6 +52,17 @@ const api: RendererApi = {
 
   deleteLibraryEntry: (library: LibraryId, id: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannel.LibraryDelete, library, id),
+
+  openFile: (): Promise<OpenedFile | null> => ipcRenderer.invoke(IpcChannel.FileOpen),
+
+  saveFile: (path: string, text: string): Promise<ExternalFile> =>
+    ipcRenderer.invoke(IpcChannel.FileSave, path, text),
+
+  saveFileAs: (text: string): Promise<ExternalFile | null> =>
+    ipcRenderer.invoke(IpcChannel.FileSaveAs, text),
+
+  openExternalLink: (url: string): Promise<void> =>
+    ipcRenderer.invoke(IpcChannel.LinkOpen, url),
 
   pickDirectory: (current: string): Promise<string | null> =>
     ipcRenderer.invoke(IpcChannel.PickDirectory, current),
