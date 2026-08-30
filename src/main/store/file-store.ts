@@ -14,6 +14,16 @@ import { slugify } from './library-store.js';
  */
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
+/**
+ * How a file ends its lines.
+ *
+ * Tracked because CodeMirror normalises every break to `\n` the moment a document is loaded, so
+ * the renderer physically cannot hand back the `\r\n` a Windows file arrived with. Writing the
+ * buffer as-is would rewrite every line of the file, which on a versioned document reads as a
+ * diff touching the whole thing for no reason anyone can see.
+ */
+type Newline = '\n' | '\r\n';
+
 /** The dialogs this store needs, injected so the store itself stays free of Electron. */
 export interface FilePrompts {
   /** Native open dialog. Returns the chosen absolute path, or null when cancelled. */
@@ -39,7 +49,8 @@ export interface FilePrompts {
  * no surprise.
  */
 export class FileStore {
-  private readonly authorised = new Set<string>();
+  /** Authorised paths, each mapped to the line ending it must keep. */
+  private readonly authorised = new Map<string, Newline>();
 
   constructor(private readonly prompts: FilePrompts) {}
 
@@ -67,7 +78,9 @@ export class FileStore {
     }
 
     const text = await readFile(path, 'utf8');
-    this.authorised.add(path);
+    // One `\r\n` anywhere is enough: a mixed file is being written by a CRLF tool, and picking
+    // CRLF leaves it exactly as inconsistent as it was rather than converting it wholesale.
+    this.authorised.set(path, text.includes('\r\n') ? '\r\n' : '\n');
     return { path, name: basename(path), text };
   }
 
@@ -79,12 +92,13 @@ export class FileStore {
    */
   async save(path: string, text: string): Promise<ExternalFile> {
     const target = resolve(path);
-    if (!this.authorised.has(target)) {
+    const newline = this.authorised.get(target);
+    if (newline === undefined) {
       // Developer-facing: the renderer only ever echoes back a path this store handed it, so
       // reaching this line means a bug, not a situation the user can talk themselves into.
       throw new Error(`Unauthorised file path: ${target}`);
     }
-    await atomicWriteFile(target, text);
+    await atomicWriteFile(target, withNewline(text, newline));
     return { path: target, name: basename(target) };
   }
 
@@ -103,10 +117,22 @@ export class FileStore {
       return null;
     }
     const target = resolve(chosen);
-    await atomicWriteFile(target, text);
-    this.authorised.add(target);
+    // A file the app is creating gets `\n`, like everything else it writes.
+    await atomicWriteFile(target, withNewline(text, '\n'));
+    this.authorised.set(target, '\n');
     return { path: target, name: basename(target) };
   }
+}
+
+/**
+ * Rewrites `text` with the given line ending.
+ *
+ * Normalises to `\n` first rather than expanding in place, so text that already carries `\r\n`
+ * cannot come out with `\r\r\n`.
+ */
+function withNewline(text: string, newline: Newline): string {
+  const normalised = text.replace(/\r\n?/g, '\n');
+  return newline === '\n' ? normalised : normalised.replace(/\n/g, '\r\n');
 }
 
 function formatSize(bytes: number): string {

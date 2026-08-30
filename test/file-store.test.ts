@@ -111,6 +111,56 @@ describe('FileStore', () => {
     });
   });
 
+  /*
+   * CodeMirror normalises every line break to `\n` the moment a document is loaded, so the
+   * renderer cannot hand back the `\r\n` a Windows file arrived with. Writing the buffer as-is
+   * would rewrite every line of the file, which on a versioned document reads as a diff touching
+   * the whole thing for no reason anyone can see.
+   */
+  describe('line endings', () => {
+    it('gives a CRLF file its CRLF back, whatever the editor handed over', async () => {
+      const path = join(directory, 'windows.md');
+      await writeFile(path, '# Titre\r\n\r\nUne ligne.\r\n', 'utf8');
+
+      const { store } = storeThatPicks(path);
+      await store.open();
+      await store.save(path, '# Titre\n\nDeux lignes.\n');
+
+      expect(await readFile(path, 'utf8')).toBe('# Titre\r\n\r\nDeux lignes.\r\n');
+    });
+
+    it('leaves an LF file on LF', async () => {
+      const path = join(directory, 'unix.md');
+      await writeFile(path, 'une ligne\ndeux\n', 'utf8');
+
+      const { store } = storeThatPicks(path);
+      await store.open();
+      await store.save(path, 'une ligne\ntrois\n');
+
+      expect(await readFile(path, 'utf8')).toBe('une ligne\ntrois\n');
+    });
+
+    it('never doubles a carriage return when the text already carries one', async () => {
+      const path = join(directory, 'windows.md');
+      await writeFile(path, 'a\r\nb\r\n', 'utf8');
+
+      const { store } = storeThatPicks(path);
+      await store.open();
+      await store.save(path, 'a\r\nc\r\n');
+
+      expect(await readFile(path, 'utf8')).toBe('a\r\nc\r\n');
+    });
+
+    it('writes a brand new file with LF, like everything else the app creates', async () => {
+      const target = join(directory, 'nouveau.md');
+      const { store } = storeThatPicks(null, target);
+
+      await store.saveAs('a\r\nb\r\n');
+
+      expect(await readFile(target, 'utf8')).toBe('a\nb\n');
+    });
+  });
+
   it('seeds the save dialog with the slug the library would have used', async () => {
     const { store, chooseToSave } = storeThatPicks(null, join(directory, 'x.md'));
 

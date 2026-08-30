@@ -121,11 +121,19 @@ export function getText(view: EditorView): string {
  *
  * One transaction means one undo step: whatever this writes, `Ctrl+Z` takes back in full. That
  * property is what makes applying a rewrite safe.
+ *
+ * The text is converted through `toText` before anything is measured, because the conversion is
+ * not length-preserving: CodeMirror stores one line break per line, so every `\r\n` in the input
+ * becomes a single character in the document. Deriving the caret position from `text.length`
+ * therefore put it past the end of a CRLF document, and the transaction was rejected outright
+ * with "Selection points outside of document". Everything the app wrote itself used `\n`, so the
+ * first text to trigger it was a file opened from disk on Windows.
  */
 export function replaceAll(view: EditorView, text: string): void {
+  const insert = view.state.toText(text);
   view.dispatch({
-    changes: { from: 0, to: view.state.doc.length, insert: text },
-    selection: { anchor: text.length },
+    changes: { from: 0, to: view.state.doc.length, insert },
+    selection: { anchor: insert.length },
     scrollIntoView: true,
   });
 }
