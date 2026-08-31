@@ -100,10 +100,7 @@ describe('LibraryStore', () => {
     // mtime is the ordering key, so the second write has to actually be later.
     await store.overwrite('ancienne.md', '# Ancienne\ny');
 
-    expect((await store.list()).map((entry) => entry.id)).toEqual([
-      'ancienne.md',
-      'recente.md',
-    ]);
+    expect((await store.list()).map((entry) => entry.id)).toEqual(['ancienne.md', 'recente.md']);
   });
 
   it('deletes one document and leaves the others', async () => {
@@ -185,6 +182,10 @@ describe('LibraryStore', () => {
     expect((await prompts.save('# Revue de PR\ny')).id).toBe('revue-de-pr.md');
   });
 
+  // Slow by nature: every save relists the directory to keep names unique, so 300 of them cost
+  // quadratic time. Around 2 s on a local NVMe, but close to 5 s on a CI runner, which is exactly
+  // Vitest's default budget, so the timeout is explicit here instead of left to the weather. The
+  // count stays well above the history cap this test exists to contrast with.
   it('never prunes, however many documents there are', async () => {
     // The property that separates a note from a snapshot. History caps at 200 and drops the
     // oldest; a note the user deliberately saved must still be there.
@@ -194,5 +195,5 @@ describe('LibraryStore', () => {
     }
 
     expect(await store.list()).toHaveLength(300);
-  });
+  }, 30_000);
 });

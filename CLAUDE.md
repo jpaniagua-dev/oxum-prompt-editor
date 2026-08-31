@@ -163,9 +163,10 @@ npm run dist:zip   # le zip publié par la release, dans release/
 ## Release
 
 Pousser un tag `v*` déclenche `.github/workflows/release.yml` : les portes (lint, tests,
-typecheck), le build du zip, puis la publication. `ci.yml` rejoue les mêmes portes sans packaging
-sur `main` et sur les PR, pour qu'une casse ne se découvre pas après avoir tagué. Trois règles que
-le workflow impose et qu'une modification ne doit pas casser en silence :
+typecheck), le build du zip, puis la publication. C'est le **seul** workflow, donc la seule porte :
+une casse ne se voit qu'au moment du tag, et un échec impose de déplacer le tag plutôt que de
+relancer le job, Actions résolvant le workflow depuis la référence poussée. Trois règles que le
+workflow impose et qu'une modification ne doit pas casser en silence :
 
 - **Le tag doit égaler la version de `package.json`**, sinon le job échoue tôt et volontairement.
   La barre de statut est le seul moyen de savoir quel build tourne, donc un tag qui mentirait sur
@@ -179,6 +180,13 @@ le workflow impose et qu'une modification ne doit pas casser en silence :
   pas d'`artifactName` par cible. Y remettre `${version}` casserait l'URL permanente
   `releases/latest/download/oxum-prompt-editor-win-x64.zip`, qui est tout l'intérêt de n'avoir
   qu'une release.
+
+⚠️ `test/library-store.test.ts` porte un `timeout` explicite de 30 s sur « never prunes ». Ce
+n'est pas une verrue : le test écrit 300 documents et chaque `save()` reliste le dossier pour
+garantir l'unicité du nom, donc le coût est quadratique. Il tient en 2 s sur un NVMe local mais
+prend près de 5 s sur un runner GitHub, soit le budget par défaut de Vitest, ce qui a déjà fait
+échouer une release. Ne pas le retirer, et ne pas baisser les 300 documents : le nombre doit
+rester nettement au-dessus du cap de 200 de l'historique, qui est ce que le test oppose.
 
 ## Conventions
 
