@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dist": "npm run build && electron-builder --win",
+    "dist:zip": "npm run build && electron-builder --win zip --x64 -c.win.artifactName=oxum-prompt-editor-win-x64.zip",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

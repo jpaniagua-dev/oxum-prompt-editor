@@ -17,10 +17,30 @@ It exists to fix two specific annoyances of writing prompts directly in a termin
 
 ## Install
 
+Download [oxum-prompt-editor-win-x64.zip](https://github.com/jpaniagua-dev/oxum-prompt-editor/releases/latest/download/oxum-prompt-editor-win-x64.zip),
+extract it anywhere, run `Oxum Prompt Editor.exe`. One release lives at a time, so that link
+always points at the newest build and there is no older one to pick from by mistake.
+
+Two things about a downloaded build, both of which bite otherwise:
+
+- The app is **not code signed**, and Windows marks anything downloaded, so SmartScreen shows
+  "Windows protected your PC" on first launch. Right-click the **zip**, Properties, **Unblock**,
+  then extract: doing it on the archive saves unblocking every extracted file.
+- Every packaged build shares one `userData`, so also one single-instance lock. **Quit the running
+  app from the tray before replacing the folder**, otherwise its files are locked, and worse,
+  launching the new build silently surfaces the old window. For the same reason, uninstall the
+  NSIS-installed copy if you have one.
+
+Releases are built by GitHub Actions from a `v*` tag, which must match the version in
+`package.json`. Publishing a new one deletes the previous release.
+
+From source:
+
 ```bash
 npm install
 npm run dev          # run from source
-npm run dist         # build release/Oxum Prompt Editor-<version>-x64.exe (+ portable)
+npm run dist         # NSIS installer + portable exe in release/
+npm run dist:zip     # the zip the release workflow publishes
 ```
 
 Requires Node 22+ and Windows. The installer is per-user, so it needs no administrator rights.
@@ -38,6 +58,9 @@ The bindings deliberately invert terminal convention: `Enter` never submits.
 | `Ctrl+R` | Rewrite with the selected preset |
 | `Ctrl+Shift+R` | Open the preset picker |
 | `Ctrl+N` | New prompt (the current one is archived first) |
+| `Ctrl+O` | Open a `.md` file from disk (the current draft is archived first) |
+| `Ctrl+S` | Write back to the opened file, or ask where to save |
+| `Ctrl+P` | Preview: render the Markdown in place of the editor |
 | `Ctrl+H` | History panel |
 | `Ctrl+L` | Prompt library |
 | `Ctrl+M` | Notes panel |
@@ -168,6 +191,34 @@ exactly the risk this app refuses), and a `.md` file the app did not create appe
 only if its name happens to match the generated shape, so pointing the setting at an existing
 folder does not make the app claim what is in it.
 
+## Preview and files on disk
+
+`Ctrl+P`, or the eye in the titlebar, renders the draft **in place of** the editor rather than
+beside it. The window regularly sits under 700px wide, where two columns would give two unreadable
+ones.
+
+Nothing is ever parsed as HTML: the preview walks the Lezer tree CodeMirror already built and
+constructs every node explicitly, so one grammar both highlights and renders the document, and a
+draft pasted from anywhere stays text. Two consequences are deliberate rather than incidental.
+Images render as labelled chips, since the renderer's CSP allows none of the sources a Markdown
+image points at, and links open in the system browser instead of navigating a window that has no
+way back.
+
+`Ctrl+O` loads a file the way a note loads: the current text is archived first and replaced in a
+single transaction, so one `Ctrl+Z` takes it back. The difference is that the path is remembered,
+and `Ctrl+S` writes straight to it, falling back to a save dialog when nothing is bound. Anything
+that makes the buffer a different document (a new prompt, a note, a restored snapshot) drops the
+binding; a rewrite keeps it, being the same document reworded. Files over 2 MB are refused, because
+the editor re-parses the whole document on every keystroke and a huge one turns the popup into a
+frozen window.
+
+Two of those rules are constraints, not conveniences. The main process only ever writes to a path
+**you** picked in a native dialog during this run, and that authorisation is not persisted:
+reviving it days later would turn `Ctrl+S` into an overwrite of a file you had forgotten about. And
+the line ending a file arrived with is restored on save, because the editor normalises every break
+to `\n` on load, so writing the buffer as-is would rewrite every line of a Windows document and
+show up as a diff over the whole file for no visible reason.
+
 ## Settings
 
 `Ctrl+,` opens the settings page, or edit `%APPDATA%\oxum-prompt-editor\settings.json` by hand.
@@ -218,7 +269,7 @@ own lighter tints. Same family, weight appropriate to the background.
 src/shared/contracts.ts   Types for every main <-> renderer channel: the single source of truth
 src/main/                 Window, tray, global shortcut, theme, stores, Claude CLI integration
 src/preload/              contextBridge: one narrow typed API, no generic IPC passthrough
-src/renderer/             CodeMirror 6 editor, format bar, side panel, settings page, token badge
+src/renderer/             CodeMirror 6 editor, preview, format bar, side panel, settings, badge
 src/renderer/styles/      tokens.css holds both palettes; app.css only references tokens
 ```
 

@@ -37,6 +37,14 @@ pratique.
   vient de l'utilisateur et du CLI.
 - **L'éditeur manipule du Markdown source**, stylé mais jamais transformé. Ne pas introduire de
   sérialiseur WYSIWYG : il altérerait blocs de code, backticks et indentation.
+- **L'aperçu ne parse jamais d'HTML.** `src/renderer/preview/render-markdown.ts` parcourt l'arbre
+  Lezer et construit chaque nœud explicitement, avec la même liste d'extensions que
+  `markdownLanguage` : une seule grammaire colore et rend le même document. C'est le prolongement de
+  la règle « jamais `innerHTML` », pas une préférence de style, donc ne pas remplacer ce parcours
+  par un rendu de chaîne. Deux conséquences sont assumées et non des manques à combler : les images
+  deviennent des chips étiquetées (la CSP du renderer n'autorise aucune des sources vers lesquelles
+  pointe une image Markdown) et les liens partent dans le navigateur système, une fenêtre sans
+  navigation n'ayant aucun retour possible.
 - **Le brouillon passe au CLI par stdin**, jamais en argv (limite ~32k sur Windows, plus l'enfer
   du quoting).
 - **Deux régimes de stockage.** `HistoryStore` accumule tout seul, donc ses instantanés sont
@@ -58,6 +66,20 @@ pratique.
   barrière contre la traversée de chemin dans un dossier qui peut être n'importe où, et changer le
   réglage **ne déplace pas** les fichiers existants (un déplacement raté à mi-course est exactement
   le risque qu'on refuse).
+- **Écrire un fichier externe se décide sur la provenance, jamais sur la forme du chemin.**
+  Contrairement aux stores ci-dessus, `FileStore` (`src/main/store/file-store.ts`) écrit vers un
+  chemin absolu quelconque, et aucun motif ne distingue un chemin légitime de
+  `C:\Windows\System32\drivers\etc\hosts` : `save` n'accepte donc qu'un chemin que `open` ou
+  `saveAs` a remis **pendant cette exécution**. Le set d'autorisations n'est **pas persisté**,
+  volontairement : le raviver des jours plus tard ferait de `Ctrl+S` l'écrasement silencieux d'un
+  fichier oublié, alors que le repli sur le dialogue coûte un clic. Ne pas le remplacer par une
+  validation de motif ni le persister « pour la commodité ».
+- **CodeMirror normalise toute fin de ligne en `\n` au chargement**, donc le renderer ne peut
+  physiquement pas rendre le `\r\n` d'un fichier Windows. `FileStore` mémorise le newline lu par
+  chemin et le restaure à l'écriture, sinon sauver un document réécrit toutes ses lignes et produit
+  un diff sur le fichier entier sans raison visible. Corollaire côté éditeur : `replaceAll` doit
+  mesurer le **texte converti**, pas la chaîne brute, sinon l'ancre tombe hors document sur du CRLF
+  et la transaction est rejetée en entier (`Selection points outside of document`).
 - **Chaque preset de réécriture interdit d'inventer du contenu** (`CORE_RULES`). Sans cette
   contrainte, le modèle fabrique des exigences absentes de l'entrée. Elle vaut pour tous les
   presets, sans exception, et un test le vérifie.
@@ -110,6 +132,12 @@ Ces points ont coûté du temps à diagnostiquer, ne pas les réintroduire :
   sur un clavier suisse romand, et aucun des trois n'est réservé par `defaultKeymap`,
   `searchKeymap` ni `historyKeymap`. ⚠️ `Ctrl+L` reste le moins sûr des trois, Chromium l'utilisant
   pour la barre d'adresse dans un vrai navigateur : à revérifier si le panneau ne s'ouvre pas.
+- **`Ctrl+P`, `Ctrl+O` et `Ctrl+S`** (aperçu, ouvrir, enregistrer) ne passent pas par le keymap
+  CodeMirror mais par un `keydown` au niveau de la fenêtre (`src/renderer/main.ts`), parce que
+  l'aperçu remplace l'éditeur : quand il est affiché, le conteneur de l'éditeur est en
+  `display:none` et le focus est sur le panneau d'aperçu, donc aucune vue CodeMirror ne recevrait
+  la touche. Ils sont volontairement ignorés dès que `Shift` ou `Alt` est tenu, et tant que la page
+  de réglages est ouverte : ses champs texte donneraient un autre sens à `Ctrl+S`.
 - **L'icône des réglages est un jeu de curseurs, pas un engrenage.** Un engrenage a besoin de ses
   dents pour être lisible ; à 14px elles fusionnent et le glyphe se lit comme un astérisque.
 - **`.cm-activeLine` se déclare dans `EditorView.theme`, pas dans la feuille de style.**
@@ -129,7 +157,28 @@ npm test           # Vitest sur les unités pures
 npm run lint       # ESLint, zéro warning toléré
 npm run typecheck  # tsc sur les projets node et web
 npm run dist       # installeur NSIS per-user + portable dans release/
+npm run dist:zip   # le zip publié par la release, dans release/
 ```
+
+## Release
+
+Pousser un tag `v*` déclenche `.github/workflows/release.yml` : les portes (lint, tests,
+typecheck), le build du zip, puis la publication. `ci.yml` rejoue les mêmes portes sans packaging
+sur `main` et sur les PR, pour qu'une casse ne se découvre pas après avoir tagué. Trois règles que
+le workflow impose et qu'une modification ne doit pas casser en silence :
+
+- **Le tag doit égaler la version de `package.json`**, sinon le job échoue tôt et volontairement.
+  La barre de statut est le seul moyen de savoir quel build tourne, donc un tag qui mentirait sur
+  la version rendrait cette information inutilisable.
+- **Une seule release vit.** Les anciennes sont supprimées après publication de la nouvelle, dans
+  cet ordre, pour qu'un échec ne laisse jamais zéro release. Les **tags sont conservés** : c'est le
+  seul lien entre une version et son commit.
+- **Le nom de l'asset est stable** (`oxum-prompt-editor-win-x64.zip`), imposé par
+  `-c.win.artifactName` dans `dist:zip` et non par `electron-builder.yml` : le schéma
+  d'electron-builder 26 refuse une clé `zip` de premier niveau, et `TargetConfiguration` n'accepte
+  pas d'`artifactName` par cible. Y remettre `${version}` casserait l'URL permanente
+  `releases/latest/download/oxum-prompt-editor-win-x64.zip`, qui est tout l'intérêt de n'avoir
+  qu'une release.
 
 ## Conventions
 
