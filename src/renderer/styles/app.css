@@ -96,6 +96,21 @@ body {
   fill: currentColor;
 }
 
+/* Hidden while the settings are up: F1 is suppressed there so the read-only overlay cannot cover
+   a form holding uncommitted edits, and a button that does nothing is worse than no button. */
+.app--settings #help-button {
+  display: none;
+}
+
+/* The help button has no drawing: the character is the icon. Sized up slightly because a glyph
+   set in the UI font reads smaller than a 14px stroke at the same nominal size. */
+.icon-button--glyph {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* ------------------------------------------------------------- format bar */
 
 .format-bar {
@@ -1089,7 +1104,9 @@ body {
 /* The settings page is a page, not a sheet: the bars below and above it act on the draft, which
    is no longer what is on screen. Hiding them removes controls that would do nothing useful. */
 .app--settings .format-bar,
-.app--settings .toolbar {
+.app--settings .toolbar,
+.app--help .format-bar,
+.app--help .toolbar {
   display: none;
 }
 
@@ -1120,4 +1137,110 @@ body {
 
 .button--primary:disabled:hover {
   background: var(--primary);
+}
+
+/* ------------------------------------------------------------------- help */
+
+/* Same overlay as the settings: two columns of key caps need the full workspace, and the bars
+   above and below act on a draft that is not on screen. */
+.help-page {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.help-page[hidden] {
+  display: none;
+}
+
+.help-page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.help-page__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 20px;
+}
+
+/* Focused on open so the page scrolls with the keyboard, but it is a container, not a control:
+   the ring would frame the whole panel and say nothing. */
+.help-page__body:focus-visible {
+  outline: none;
+}
+
+.help-section + .help-section {
+  margin-top: 22px;
+}
+
+.help-section__title {
+  margin: 0 0 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.help-section__note {
+  margin: -4px 0 10px;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* A two-column grid rather than a table: the key column takes exactly what the widest
+   combination needs, and the labels all start on one line whatever the window width. */
+.help-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: baseline;
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.help-list__keys {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.help-list__plus {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.help-list__label {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
 }

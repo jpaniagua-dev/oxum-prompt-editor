@@ -45,6 +45,21 @@
               <circle cx="8" cy="8" r="1.9" />
             </svg>
           </button>
+          <!--
+            A glyph rather than an SVG, for the same reason the format bar draws B and I as
+            letters: a question mark is the universally understood sign for help, and no drawing
+            of one is clearer than the character itself at 14px.
+          -->
+          <button
+            type="button"
+            id="help-button"
+            class="icon-button icon-button--glyph"
+            title="Raccourcis clavier (F1)"
+            aria-label="Afficher les raccourcis clavier"
+            aria-pressed="false"
+          >
+            ?
+          </button>
           <button
             type="button"
             id="settings-button"
@@ -145,9 +160,7 @@
             <span id="side-panel-title">Réécriture</span>
             <button type="button" id="panel-close" class="icon-button" title="Fermer">
               <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  d="M4.3 3.3l8.4 8.4-1 1-8.4-8.4zM12.7 4.3l-8.4 8.4-1-1 8.4-8.4z"
-                />
+                <path d="M4.3 3.3l8.4 8.4-1 1-8.4-8.4zM12.7 4.3l-8.4 8.4-1-1 8.4-8.4z" />
               </svg>
             </button>
           </div>
@@ -165,6 +178,29 @@
           <div class="side-panel__body" id="side-panel-body"></div>
           <div class="side-panel__footer" id="side-panel-footer"></div>
         </aside>
+
+        <!--
+          The shortcut reference. Same overlay treatment as the settings, and for the same
+          reason: two columns of key caps do not fit in a 46% side panel, and the toolbar
+          underneath acts on a draft that is no longer on screen.
+        -->
+        <section class="help-page" id="help-page" hidden aria-label="Raccourcis clavier">
+          <div class="help-page__header">
+            <span>Raccourcis clavier</span>
+            <button
+              type="button"
+              id="help-close"
+              class="icon-button"
+              title="Fermer (Échap)"
+              aria-label="Fermer les raccourcis"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4.3 3.3l8.4 8.4-1 1-8.4-8.4zM12.7 4.3l-8.4 8.4-1-1 8.4-8.4z" />
+              </svg>
+            </button>
+          </div>
+          <div class="help-page__body" id="help-page-body" tabindex="-1"></div>
+        </section>
 
         <!--
           Settings cover the whole workspace rather than sharing the side panel: the panel is 46%

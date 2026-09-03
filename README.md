@@ -47,7 +47,9 @@ Requires Node 22+ and Windows. The installer is per-user, so it needs no adminis
 
 ## Keyboard
 
-The bindings deliberately invert terminal convention: `Enter` never submits.
+The bindings deliberately invert terminal convention: `Enter` never submits. `F1` opens the whole
+list in the app, and that panel is generated from the same tables the keymap is built from, so it
+cannot fall out of date with the app the way this section can.
 
 | Key | Action |
 | --- | --- |
@@ -66,6 +68,7 @@ The bindings deliberately invert terminal convention: `Enter` never submits.
 | `Ctrl+M` | Notes panel |
 | `Ctrl+,` | Settings |
 | `Ctrl+Shift+D` | Cycle the theme: light, dark, follow the system |
+| `F1` | Keyboard shortcut reference |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 | `Ctrl+F` | Search within the draft |
 | `Esc` | Close the open panel, or hide the window |
@@ -102,6 +105,11 @@ Two shortcuts were chosen the hard way and are worth knowing about if you rebind
 digit combinations are layout dependent (on a Swiss/French keyboard `Ctrl+Shift+7` arrives as
 `Ctrl+/` and gets eaten by the comment toggle), and `Ctrl+Shift+O` never reaches the renderer at
 all because Chromium keeps it for its bookmark manager.
+
+Every binding above is declared once, in `src/renderer/editor/shortcuts.ts`, as plain data. The
+CodeMirror keymap, the window-level handler, the toolbar tooltips and the `F1` panel all read
+those tables, so a new shortcut is one entry rather than four, and a test refuses a duplicate key,
+a missing label, or a digit combined with Shift.
 
 ## How your text is protected
 

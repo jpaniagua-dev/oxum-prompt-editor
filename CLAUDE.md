@@ -117,6 +117,17 @@ pratique.
 - **Aucune mention de l'employeur, de sa charte ou d'un hub interne** dans ce dépôt : il est
   public. Les tokens de couleur restent nommés `--brand-*`.
 
+- **Les raccourcis sont déclarés une seule fois**, dans `src/renderer/editor/shortcuts.ts`, sous
+  forme de données. Le keymap CodeMirror, le `keydown` de la fenêtre, les infobulles de la barre de
+  format et le panneau `F1` lisent tous ces tables. Une liste de raccourcis écrite à la main dans
+  le panneau d'aide serait un document, et un document dérive : ici un binding ajouté sans libellé
+  ne compile pas, et un test refuse une touche en double, un libellé vide ou un chiffre combiné à
+  `Shift`. Ne pas réintroduire de touche câblée en dur ailleurs.
+- **Le panneau d'aide (`F1`) et la page de réglages sont exclusifs**, et l'exclusion est
+  asymétrique : ouvrir les réglages ferme l'aide, l'inverse est interdit. Les réglages tiennent une
+  copie de travail non enregistrée, l'aide ne tient rien. C'est pourquoi `F1` est neutralisé tant
+  que les réglages sont ouverts, et pourquoi le bouton `?` disparaît alors au lieu de rester inerte.
+
 ## Pièges vérifiés sur les raccourcis et le thème
 
 Ces points ont coûté du temps à diagnostiquer, ne pas les réintroduire :
@@ -132,6 +143,11 @@ Ces points ont coûté du temps à diagnostiquer, ne pas les réintroduire :
   sur un clavier suisse romand, et aucun des trois n'est réservé par `defaultKeymap`,
   `searchKeymap` ni `historyKeymap`. ⚠️ `Ctrl+L` reste le moins sûr des trois, Chromium l'utilisant
   pour la barre d'adresse dans un vrai navigateur : à revérifier si le panneau ne s'ouvre pas.
+- **`F1` plutôt qu'une combinaison `Mod-`** pour l'aide : c'est la seule touche d'aide sur laquelle
+  tous les logiciels Windows s'accordent, aucune disposition ne la déforme, et ni `defaultKeymap`
+  ni `searchKeymap` ne la réserve. Elle est câblée deux fois, dans le keymap **et** dans le
+  `keydown` de la fenêtre, parce que l'aperçu comme le panneau d'aide lui-même n'ont aucune vue
+  CodeMirror pour recevoir la touche.
 - **`Ctrl+P`, `Ctrl+O` et `Ctrl+S`** (aperçu, ouvrir, enregistrer) ne passent pas par le keymap
   CodeMirror mais par un `keydown` au niveau de la fenêtre (`src/renderer/main.ts`), parce que
   l'aperçu remplace l'éditeur : quand il est affiché, le conteneur de l'éditeur est en

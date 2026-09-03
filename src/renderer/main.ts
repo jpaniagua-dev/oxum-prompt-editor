@@ -21,14 +21,12 @@ import {
   replaceAll,
 } from './editor/create-editor.js';
 import { createAppKeymap } from './editor/keymap.js';
+import { windowCommandFor } from './editor/shortcuts.js';
 import { createElement, requireElement } from './ui/dom.js';
 import { formatTimestamp } from './ui/format.js';
 import { mountFormatBar } from './ui/format-bar.js';
-import {
-  confirmButton,
-  renderLibraryEmpty,
-  renderLibraryList,
-} from './ui/library-panel.js';
+import { HelpPage } from './ui/help-page.js';
+import { confirmButton, renderLibraryEmpty, renderLibraryList } from './ui/library-panel.js';
 import { PreviewPane } from './ui/preview-pane.js';
 import { SettingsPage } from './ui/settings-page.js';
 import { SidePanel, type PanelMode } from './ui/side-panel.js';
@@ -49,6 +47,10 @@ class App {
 
   private readonly preview = new PreviewPane({
     onLinkActivate: (url) => void this.openLink(url),
+  });
+
+  private readonly helpPage = new HelpPage({
+    onClose: () => this.exitHelp(),
   });
 
   private readonly settingsPage = new SettingsPage({
@@ -113,6 +115,7 @@ class App {
         showNotes: () => void this.showLibraryTab('notes'),
         showHistory: () => void this.showLibraryTab('history'),
         toggleSettings: () => this.toggleSettings(),
+        toggleHelp: () => this.toggleHelp(),
         cycleTheme: () => void this.cycleTheme(),
         escape: () => this.handleEscape(),
       }),
@@ -148,9 +151,10 @@ class App {
    * Bindings that must work even when the editor does not have focus.
    *
    * The app's own keymap is a CodeMirror extension, so it only fires while the caret is in the
-   * text, which in the preview it never is. These four live on the document instead. They cannot
-   * fire twice for one key: CodeMirror handles its own bindings first and calls `preventDefault`
-   * on what it took, and anything already handled is let through here untouched.
+   * text, which in the preview and the help page it never is. These live on the document
+   * instead. They cannot fire twice for one key: CodeMirror handles its own bindings first and
+   * calls `preventDefault` on what it took, and anything already handled is let through here
+   * untouched. Which key does what is not decided here either: `WINDOW_SHORTCUTS` is.
    */
   private handleGlobalKeydown(event: KeyboardEvent): void {
     if (event.defaultPrevented) {
@@ -161,6 +165,15 @@ class App {
       this.handleEscape();
       return;
     }
+    // F1 is in the editor keymap too, but the help page has to be reachable from the preview and
+    // from itself, neither of which has a CodeMirror view to receive the key. Suppressed while
+    // the settings are open, like the three below and for the same reason: the help overlay
+    // would cover a form holding uncommitted edits.
+    if (event.key === 'F1' && !event.altKey && !event.shiftKey && !this.settingsPage.isOpen) {
+      event.preventDefault();
+      this.toggleHelp();
+      return;
+    }
     if (!event.ctrlKey && !event.metaKey) {
       return;
     }
@@ -169,20 +182,20 @@ class App {
       return;
     }
 
-    switch (event.key.toLowerCase()) {
-      case 'p':
-        event.preventDefault();
+    const command = windowCommandFor(event.key);
+    if (command === null) {
+      return;
+    }
+    event.preventDefault();
+    switch (command) {
+      case 'togglePreview':
         this.togglePreview();
         break;
-      case 'o':
-        event.preventDefault();
+      case 'openFile':
         void this.openFile();
         break;
-      case 's':
-        event.preventDefault();
+      case 'saveFile':
         void this.saveFile();
-        break;
-      default:
         break;
     }
   }
@@ -399,6 +412,9 @@ class App {
     }
     // The panel would sit behind the overlay, and its Escape handling is now second in line.
     this.panel.close();
+    // Two overlays at the same z-index: the help page is read-only, so the settings win without
+    // anything being lost. The reverse is not allowed, which is why F1 is dead while they are up.
+    this.helpPage.close();
     // The format bar and the toolbar act on the draft, which is not what is on screen any more.
     // Hiding them makes the overlay a page rather than a sheet floating over live controls.
     requireElement<HTMLDivElement>('app-root').classList.add('app--settings');
@@ -409,6 +425,40 @@ class App {
   private exitSettings(): void {
     requireElement<HTMLDivElement>('app-root').classList.remove('app--settings');
     this.editor?.focus();
+  }
+
+  /* ----------------------------------------------------------------- help */
+
+  /**
+   * Shows or hides the shortcut reference.
+   *
+   * The registered accelerator is read from the settings at every open rather than captured
+   * once: it is the one line on the page the user can change, and printing a stale value in a
+   * reference is worse than printing none.
+   */
+  private toggleHelp(): void {
+    if (this.helpPage.isOpen) {
+      this.helpPage.close();
+      return;
+    }
+    this.panel.close();
+    requireElement<HTMLDivElement>('app-root').classList.add('app--help');
+    this.reflectHelpButton(true);
+    this.helpPage.show(this.settings?.globalShortcut ?? '');
+  }
+
+  /** Restores the chrome the help page hid. */
+  private exitHelp(): void {
+    requireElement<HTMLDivElement>('app-root').classList.remove('app--help');
+    this.reflectHelpButton(false);
+    this.editor?.focus();
+  }
+
+  private reflectHelpButton(open: boolean): void {
+    requireElement<HTMLButtonElement>('help-button').setAttribute(
+      'aria-pressed',
+      open ? 'true' : 'false',
+    );
   }
 
   /**
@@ -743,6 +793,11 @@ class App {
       this.settingsPage.close();
       return;
     }
+    // Then the help page, for the same reason: it covers everything below it.
+    if (this.helpPage.isOpen) {
+      this.helpPage.close();
+      return;
+    }
     if (this.panel.isOpen) {
       this.panel.close();
       this.editor?.focus();
@@ -882,16 +937,8 @@ class App {
 
     this.panel.setActions(
       this.activeRewriteKind === 'text'
-        ? [
-            { ...copy, variant: 'primary' },
-            { ...apply, variant: 'accent' },
-            retry,
-          ]
-        : [
-            { ...apply, variant: 'primary' },
-            { ...copy, variant: 'accent' },
-            retry,
-          ],
+        ? [{ ...copy, variant: 'primary' }, { ...apply, variant: 'accent' }, retry]
+        : [{ ...apply, variant: 'primary' }, { ...copy, variant: 'accent' }, retry],
     );
   }
 
@@ -976,7 +1023,8 @@ class App {
       confirmButton({
         label: 'Tout supprimer',
         armedLabel: `Confirmer (${entries.length})`,
-        title: 'Supprime tous les instantanés. Le brouillon en cours et les notes ne sont pas touchés.',
+        title:
+          'Supprime tous les instantanés. Le brouillon en cours et les notes ne sont pas touchés.',
         onConfirm: () => void this.clearHistory(),
       }),
     );
@@ -1069,6 +1117,9 @@ class App {
     });
     requireElement<HTMLButtonElement>('settings-button').addEventListener('click', () => {
       this.toggleSettings();
+    });
+    requireElement<HTMLButtonElement>('help-button').addEventListener('click', () => {
+      this.toggleHelp();
     });
     requireElement<HTMLButtonElement>('settings-quit').addEventListener('click', () => {
       // Goes to the main process, which flushes the draft, archives a last snapshot and saves
