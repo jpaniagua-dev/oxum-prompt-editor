@@ -38,7 +38,7 @@ import { TokenBadge } from './ui/token-badge.js';
 const MIRROR_KEY = 'oxum.draft.mirror';
 
 class App {
-  private readonly statusBar = new StatusBar({ onSaveFile: () => void this.saveFile() });
+  private readonly statusBar = new StatusBar();
   private readonly tokenBadge = new TokenBadge();
   private readonly toast = new Toast();
   private readonly panel = new SidePanel({
@@ -69,15 +69,13 @@ class App {
   private lastLibraryTab: LibraryTab = 'prompts';
 
   /**
-   * The file on disk the draft is currently bound to, or null when it is just the draft.
+   * The file the buffer was loaded from, or null when it is just the draft.
    *
-   * Session state on purpose, and dropped by every action that makes the buffer something other
-   * than that document: a new prompt, a note loaded, a snapshot restored. `Ctrl+S` must never
-   * overwrite a file with text that no longer came from it.
+   * Provenance only, since nothing writes back to it, and dropped by every action that makes the
+   * buffer another document: a new prompt, a note loaded, a snapshot restored. Session state on
+   * purpose: a path shown after a restart would name a file the buffer may no longer hold.
    */
   private openedFile: ExternalFile | null = null;
-  /** Whether the buffer has changed since the file was opened or last written. */
-  private fileModified = false;
 
   /** Id of the rewrite in flight, used to ignore events from a cancelled one. */
   private activeRewriteId: string | null = null;
@@ -167,7 +165,7 @@ class App {
     }
     // F1 is in the editor keymap too, but the help page has to be reachable from the preview and
     // from itself, neither of which has a CodeMirror view to receive the key. Suppressed while
-    // the settings are open, like the three below and for the same reason: the help overlay
+    // the settings are open, like the two below and for the same reason: the help overlay
     // would cover a form holding uncommitted edits.
     if (event.key === 'F1' && !event.altKey && !event.shiftKey && !this.settingsPage.isOpen) {
       event.preventDefault();
@@ -177,7 +175,7 @@ class App {
     if (!event.ctrlKey && !event.metaKey) {
       return;
     }
-    // The settings page owns its own text fields, where these three would mean the wrong thing.
+    // The settings page owns its own text fields, where these would mean the wrong thing.
     if (event.altKey || event.shiftKey || this.settingsPage.isOpen) {
       return;
     }
@@ -193,9 +191,6 @@ class App {
         break;
       case 'openFile':
         void this.openFile();
-        break;
-      case 'saveFile':
-        void this.saveFile();
         break;
     }
   }
@@ -267,11 +262,12 @@ class App {
   /* ------------------------------------------------------------------ files */
 
   /**
-   * Opens a Markdown file from anywhere on the disk and binds the draft to it.
+   * Loads a Markdown file from anywhere on the disk into the buffer.
    *
    * Same contract as loading a note: the current text is archived first and replaced in a single
-   * transaction, so `Ctrl+Z` brings it back. The difference is what happens afterwards, namely
-   * that the path is remembered and `Ctrl+S` writes straight back to it.
+   * transaction, so `Ctrl+Z` brings it back. Reading is the only direction, the file is never
+   * written to, and the buffer becomes a draft like any other: to copy out, or to save to a
+   * library under the app's own name.
    */
   private async openFile(): Promise<void> {
     if (this.editor === null) {
@@ -287,7 +283,7 @@ class App {
         await window.api.snapshotDraft(current, 'restore');
       }
       this.replaceDocument(this.editor, file.text);
-      this.bindFile({ path: file.path, name: file.name }, false);
+      this.bindFile({ path: file.path, name: file.name });
       this.panel.close();
       if (!this.preview.isOpen) {
         this.editor.focus();
@@ -298,44 +294,10 @@ class App {
     }
   }
 
-  /**
-   * Writes the draft to the bound file, or asks where to put it when there is none.
-   *
-   * Falling back to the save dialog rather than doing nothing is what makes `Ctrl+S` mean the
-   * same thing at all times. It is also the only path after a restart: the authorisation to
-   * write to a given path lives in the main process and deliberately does not survive one.
-   */
-  private async saveFile(): Promise<void> {
-    if (this.editor === null) {
-      return;
-    }
-    const text = getText(this.editor);
-    if (text.trim().length === 0) {
-      this.toast.show('Rien à enregistrer');
-      return;
-    }
-    try {
-      const file =
-        this.openedFile === null
-          ? await window.api.saveFileAs(text)
-          : await window.api.saveFile(this.openedFile.path, text);
-
-      // Null only ever means the save dialog was dismissed, which is not a failure.
-      if (file === null) {
-        return;
-      }
-      this.bindFile(file, false);
-      this.statusBar.setMessage(`enregistré dans ${file.name}`);
-    } catch (error) {
-      this.toast.error(`enregistrement impossible: ${describeError(error)}`);
-    }
-  }
-
-  /** Binds, rebinds or unbinds the draft's file, and reflects it in the status bar. */
-  private bindFile(file: ExternalFile | null, modified: boolean): void {
+  /** Records where the buffer came from, or clears it, and reflects it in the status bar. */
+  private bindFile(file: ExternalFile | null): void {
     this.openedFile = file;
-    this.fileModified = modified;
-    this.statusBar.setFile(file, modified);
+    this.statusBar.setFile(file);
   }
 
   /* ----------------------------------------------------------------- theme */
@@ -656,7 +618,7 @@ class App {
         await window.api.snapshotDraft(current, 'restore');
       }
       this.replaceDocument(this.editor, text);
-      this.bindFile(null, false);
+      this.bindFile(null);
       this.panel.close();
       this.editor.focus();
       this.toast.show('Note chargée · Ctrl+Z pour revenir');
@@ -731,10 +693,6 @@ class App {
     this.statusBar.updateCounts(text);
     this.tokenBadge.update(text);
     this.statusBar.markPending();
-    // The draft autosaves itself; the user's own file does not, so the chip has to say so.
-    if (this.openedFile !== null && !this.fileModified) {
-      this.bindFile(this.openedFile, true);
-    }
     // The main process debounce is 300ms; report saved slightly after it fires.
     window.setTimeout(() => this.statusBar.markSaved(), 400);
   }
@@ -780,8 +738,8 @@ class App {
       await window.api.snapshotDraft(text, 'new');
     }
     this.replaceDocument(this.editor, '');
-    // A new prompt is not the file that was open, and Ctrl+S must not overwrite it with this.
-    this.bindFile(null, false);
+    // A new prompt did not come from the file that was open, so the chip must stop naming it.
+    this.bindFile(null);
     this.editor.focus();
     this.statusBar.setMessage('nouveau prompt (l’ancien est dans l’historique)');
   }
@@ -1072,7 +1030,7 @@ class App {
         await window.api.snapshotDraft(current, 'restore');
       }
       this.replaceDocument(this.editor, text);
-      this.bindFile(null, false);
+      this.bindFile(null);
       this.panel.close();
       this.editor.focus();
       this.toast.show('Instantané restauré');

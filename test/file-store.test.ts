@@ -1,25 +1,14 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FileStore } from '../src/main/store/file-store.js';
 
 let directory = '';
 
-interface ScriptedStore {
-  readonly store: FileStore;
-  /** Kept so a test can assert on the name the dialog was seeded with. */
-  readonly chooseToSave: Mock<(suggestedName: string) => Promise<string | null>>;
-}
-
-/** A store whose dialogs are scripted, so the tests never open a native window. */
-function storeThatPicks(toOpen: string | null, toSave: string | null = null): ScriptedStore {
-  const chooseToSave: ScriptedStore['chooseToSave'] = vi.fn(async () => toSave);
-  const store = new FileStore({
-    chooseToOpen: async () => toOpen,
-    chooseToSave,
-  });
-  return { store, chooseToSave };
+/** A store whose dialog is scripted, so the tests never open a native window. */
+function storeThatPicks(toOpen: string | null): FileStore {
+  return new FileStore({ chooseToOpen: async () => toOpen });
 }
 
 beforeEach(async () => {
@@ -35,141 +24,49 @@ describe('FileStore', () => {
     const path = join(directory, 'notes.md');
     await writeFile(path, '# Titre\n', 'utf8');
 
-    const opened = await storeThatPicks(path).store.open();
+    const opened = await storeThatPicks(path).open();
 
     expect(opened).toEqual({ path, name: 'notes.md', text: '# Titre\n' });
   });
 
   it('returns null when the open dialog is cancelled', async () => {
-    expect(await storeThatPicks(null).store.open()).toBeNull();
+    expect(await storeThatPicks(null).open()).toBeNull();
   });
 
   it('refuses a file too large for the editor to hold', async () => {
     const path = join(directory, 'enorme.md');
     await writeFile(path, 'x'.repeat(2 * 1024 * 1024 + 1), 'utf8');
 
-    await expect(storeThatPicks(path).store.open()).rejects.toThrow(/trop volumineux/i);
+    await expect(storeThatPicks(path).open()).rejects.toThrow(/trop volumineux/i);
   });
 
-  describe('authorisation', () => {
-    it('writes back to a path the user opened in this session', async () => {
-      const path = join(directory, 'notes.md');
-      await writeFile(path, 'avant', 'utf8');
-
-      const { store } = storeThatPicks(path);
-      await store.open();
-      const saved = await store.save(path, 'après');
-
-      expect(saved).toEqual({ path, name: 'notes.md' });
-      expect(await readFile(path, 'utf8')).toBe('après');
-    });
-
-    it('refuses a path no dialog ever handed out', async () => {
-      const path = join(directory, 'jamais-ouvert.md');
-      await writeFile(path, 'intact', 'utf8');
-
-      const { store } = storeThatPicks(null);
-
-      await expect(store.save(path, 'écrasé')).rejects.toThrow(/unauthorised/i);
-      expect(await readFile(path, 'utf8')).toBe('intact');
-    });
-
-    it('does not let one authorised path authorise its neighbours', async () => {
-      const opened = join(directory, 'notes.md');
-      const sibling = join(directory, 'autre.md');
-      await writeFile(opened, 'a', 'utf8');
-      await writeFile(sibling, 'intact', 'utf8');
-
-      const { store } = storeThatPicks(opened);
-      await store.open();
-
-      await expect(store.save(sibling, 'écrasé')).rejects.toThrow(/unauthorised/i);
-      expect(await readFile(sibling, 'utf8')).toBe('intact');
-    });
-
-    it('refuses a traversal dressed up as a relative path from an authorised one', async () => {
-      const opened = join(directory, 'notes.md');
-      await writeFile(opened, 'a', 'utf8');
-
-      const { store } = storeThatPicks(opened);
-      await store.open();
-
-      await expect(store.save(join(directory, 'sous', '..', 'ailleurs.md'), 'x')).rejects.toThrow(
-        /unauthorised/i,
-      );
-    });
-
-    it('authorises the destination chosen through save-as, for later saves', async () => {
-      const target = join(directory, 'nouveau.md');
-      const { store } = storeThatPicks(null, target);
-
-      const first = await store.saveAs('# Une note de réunion\n');
-      expect(first).toEqual({ path: target, name: 'nouveau.md' });
-
-      await store.save(target, 'suite');
-      expect(await readFile(target, 'utf8')).toBe('suite');
-    });
-  });
-
-  /*
-   * CodeMirror normalises every line break to `\n` the moment a document is loaded, so the
-   * renderer cannot hand back the `\r\n` a Windows file arrived with. Writing the buffer as-is
-   * would rewrite every line of the file, which on a versioned document reads as a diff touching
-   * the whole thing for no reason anyone can see.
+  /**
+   * The reason there is nothing else to test here: this store reads and never writes.
+   *
+   * Writing back would mean holding an absolute path the user picked in a dialog and later
+   * accepting it from the renderer, with no pattern able to tell a legitimate target from
+   * `C:\Windows\System32\drivers\etc\hosts`. The app produces text to copy out, kept in the
+   * draft and in the two libraries, so an opened file is an input to that flow. A regression
+   * here would show up as a write method appearing on the class.
    */
-  describe('line endings', () => {
-    it('gives a CRLF file its CRLF back, whatever the editor handed over', async () => {
-      const path = join(directory, 'windows.md');
-      await writeFile(path, '# Titre\r\n\r\nUne ligne.\r\n', 'utf8');
-
-      const { store } = storeThatPicks(path);
-      await store.open();
-      await store.save(path, '# Titre\n\nDeux lignes.\n');
-
-      expect(await readFile(path, 'utf8')).toBe('# Titre\r\n\r\nDeux lignes.\r\n');
-    });
-
-    it('leaves an LF file on LF', async () => {
-      const path = join(directory, 'unix.md');
-      await writeFile(path, 'une ligne\ndeux\n', 'utf8');
-
-      const { store } = storeThatPicks(path);
-      await store.open();
-      await store.save(path, 'une ligne\ntrois\n');
-
-      expect(await readFile(path, 'utf8')).toBe('une ligne\ntrois\n');
-    });
-
-    it('never doubles a carriage return when the text already carries one', async () => {
-      const path = join(directory, 'windows.md');
-      await writeFile(path, 'a\r\nb\r\n', 'utf8');
-
-      const { store } = storeThatPicks(path);
-      await store.open();
-      await store.save(path, 'a\r\nc\r\n');
-
-      expect(await readFile(path, 'utf8')).toBe('a\r\nc\r\n');
-    });
-
-    it('writes a brand new file with LF, like everything else the app creates', async () => {
-      const target = join(directory, 'nouveau.md');
-      const { store } = storeThatPicks(null, target);
-
-      await store.saveAs('a\r\nb\r\n');
-
-      expect(await readFile(target, 'utf8')).toBe('a\nb\n');
-    });
+  it('exposes no way to write', () => {
+    const store: Record<string, unknown> = storeThatPicks(null) as unknown as Record<
+      string,
+      unknown
+    >;
+    for (const name of ['save', 'saveAs', 'write', 'overwrite']) {
+      expect(store[name], name).toBeUndefined();
+    }
   });
 
-  it('seeds the save dialog with the slug the library would have used', async () => {
-    const { store, chooseToSave } = storeThatPicks(null, join(directory, 'x.md'));
+  it('keeps a CRLF file exactly as it is on disk', async () => {
+    const path = join(directory, 'windows.md');
+    await writeFile(path, '# Titre\r\n\r\nUne ligne.\r\n', 'utf8');
 
-    await store.saveAs('# Réunion du lundi\n\nDu contenu.');
+    const opened = await storeThatPicks(path).open();
 
-    expect(chooseToSave).toHaveBeenCalledWith('reunion-du-lundi.md');
-  });
-
-  it('returns null when the save dialog is cancelled', async () => {
-    expect(await storeThatPicks(null, null).store.saveAs('du texte')).toBeNull();
+    // Handed over verbatim: CodeMirror normalises the breaks itself when the document loads,
+    // and since nothing is ever written back there is no line ending to restore afterwards.
+    expect(opened?.text).toBe('# Titre\r\n\r\nUne ligne.\r\n');
   });
 });

@@ -734,36 +734,13 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/*
- * The file currently bound to the draft.
- *
- * A button rather than a label, because it is the discoverable half of Ctrl+S: the status bar is
- * where you look to find out whether what you typed has landed, so the affordance to make it
- * land belongs in the same place. The dot is the whole unsaved-changes indicator.
- */
+/* Where the buffer came from, when it came from a file on disk. A label, not a control. */
 .statusbar__file {
   max-width: 26ch;
-  padding: 0;
   overflow: hidden;
-  border: 0;
-  background: none;
   color: var(--text-dim);
-  font: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
-}
-
-.statusbar__file:hover {
-  color: var(--primary);
-}
-
-.statusbar__file--modified {
-  color: var(--warning);
-}
-
-.statusbar__file--modified::after {
-  content: ' •';
 }
 
 .statusbar__message {

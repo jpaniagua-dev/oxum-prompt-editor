@@ -11,19 +11,10 @@ import { formatCount } from './token-count.js';
 export class StatusBar {
   private readonly counts = requireElement<HTMLSpanElement>('status-counts');
   private readonly save = requireElement<HTMLSpanElement>('status-save');
-  private readonly file = requireElement<HTMLButtonElement>('status-file');
+  private readonly file = requireElement<HTMLSpanElement>('status-file');
   private readonly message = requireElement<HTMLSpanElement>('status-message');
   private savedAt: number | null = null;
   private ticker: number | null = null;
-
-  /**
-   * @param options.onSaveFile Runs when the file chip is clicked, which is the same action as
-   * `Ctrl+S`. The bar owns the element rather than letting the app bind it too: two owners of
-   * one control is how a label and its behaviour drift apart.
-   */
-  constructor(options: { onSaveFile: () => void }) {
-    this.file.addEventListener('click', options.onSaveFile);
-  }
 
   updateCounts(text: string): void {
     const chars = text.length;
@@ -45,14 +36,13 @@ export class StatusBar {
   }
 
   /**
-   * Names the file on disk the draft is currently bound to, if any.
+   * Names the file the buffer was loaded from, if any.
    *
-   * Hidden the rest of the time: the draft is the normal state, and a permanent "no file" slot
-   * would suggest one is missing. `modified` drives the dot, which is the only unsaved-changes
-   * indicator in the window — the autosave message beside it is about the app's own draft file
-   * and says nothing about the user's document.
+   * Provenance, not a save target: the app never writes back to it, so the chip is a plain label
+   * with no unsaved-changes state to show. Hidden the rest of the time, because the draft is the
+   * normal case and a permanent "no file" slot would suggest one is missing.
    */
-  setFile(file: ExternalFile | null, modified: boolean): void {
+  setFile(file: ExternalFile | null): void {
     if (file === null) {
       this.file.hidden = true;
       this.file.textContent = '';
@@ -60,8 +50,7 @@ export class StatusBar {
     }
     this.file.hidden = false;
     this.file.textContent = file.name;
-    this.file.classList.toggle('statusbar__file--modified', modified);
-    this.file.title = `${file.path}${modified ? ' — non enregistré' : ''} · Enregistrer (Ctrl+S)`;
+    this.file.title = `${file.path} · ouvert en lecture, jamais réécrit`;
   }
 
   /**

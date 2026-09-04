@@ -302,11 +302,11 @@
         <span id="status-counts">0 car.</span>
         <span id="status-save" class="statusbar__save"></span>
         <!--
-          Shown only while a file from outside the app is open. It is a button because it is also
-          the visible half of Ctrl+S: the one place that says both which file is bound and that
-          it has unsaved changes.
+          Where the buffer came from, shown only while a file from outside the app is loaded.
+          A plain label, not a button: the app never writes back to that file, so there is no
+          action to hang on it.
         -->
-        <button type="button" id="status-file" class="statusbar__file" hidden></button>
+        <span id="status-file" class="statusbar__file" hidden></span>
         <span id="status-message" class="statusbar__message"></span>
         <span id="status-version" class="statusbar__version"></span>
       </div>

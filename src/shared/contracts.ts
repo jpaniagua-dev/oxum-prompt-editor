@@ -150,10 +150,9 @@ export interface LibraryEntry {
 /**
  * A Markdown file living outside the app's own folders, opened through the native dialog.
  *
- * Distinct from a {@link LibraryEntry} on the one point that matters: the app did not create it
- * and does not own its name. A library entry is addressed by an id the store generated and can
- * validate; this one is addressed by an absolute path the user chose, which the main process
- * therefore has to authorise explicitly rather than pattern-match.
+ * Distinct from a {@link LibraryEntry} on the one point that matters: the app did not create it,
+ * does not own its name, and never writes to it. It is where the buffer came from, not a
+ * destination, which is why nothing here needs authorising.
  */
 export interface ExternalFile {
   /** Absolute path, as resolved by the main process. Shown in full only in a tooltip. */
@@ -244,24 +243,15 @@ export const IpcChannel = {
   LibraryOverwrite: 'library:overwrite',
   /** invoke: (library: LibraryId, id: string) => void */
   LibraryDelete: 'library:delete',
-  /*
-   * External files are addressed by absolute path, which the renderer must never be able to
-   * choose on its own. It cannot: a path only becomes usable once the *user* picked it in a
-   * native dialog, and the main process remembers which ones it handed out. `FileSave` rejects
-   * anything else, so the renderer can rewrite the file that was opened and nothing more.
-   */
-  /** invoke: () => OpenedFile | null, native open dialog then read */
-  FileOpen: 'file:open',
-  /** invoke: (path: string, text: string) => ExternalFile, path must have been authorised */
-  FileSave: 'file:save',
   /**
-   * invoke: (text: string) => ExternalFile | null, native save dialog then write.
+   * invoke: () => OpenedFile | null, native open dialog then read.
    *
-   * The suggested file name is derived in the main process, by the same slug rule the library
-   * names its documents with, so a draft saved to disk and the same draft saved to the library
-   * come out under the same name.
+   * Read is the only direction: there is deliberately no `file:save` channel. The app produces
+   * text to copy out, kept in the draft and in the two libraries, so an external file is an
+   * input to that flow. Writing to an arbitrary absolute path would need the main process to
+   * track authorisations it has no other reason to hold.
    */
-  FileSaveAs: 'file:save-as',
+  FileOpen: 'file:open',
   /** invoke: (url: string) => void, hands an http/https/mailto link to the system browser */
   LinkOpen: 'link:open',
   /** invoke: (current: string) => string | null, native folder picker */
@@ -322,8 +312,6 @@ export interface RendererApi {
   overwriteLibraryEntry(library: LibraryId, id: string, text: string): Promise<LibraryEntry>;
   deleteLibraryEntry(library: LibraryId, id: string): Promise<void>;
   openFile(): Promise<OpenedFile | null>;
-  saveFile(path: string, text: string): Promise<ExternalFile>;
-  saveFileAs(text: string): Promise<ExternalFile | null>;
   openExternalLink(url: string): Promise<void>;
   pickDirectory(current: string): Promise<string | null>;
   writeClipboard(text: string): Promise<void>;

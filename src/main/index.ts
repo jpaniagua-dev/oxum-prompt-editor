@@ -3,7 +3,6 @@ import {
   dialog,
   type BrowserWindow,
   type OpenDialogOptions,
-  type SaveDialogOptions,
   type Tray,
 } from 'electron';
 import { join } from 'node:path';
@@ -87,10 +86,9 @@ async function bootstrap(): Promise<void> {
     ),
   } as const;
   // Files the user opens from outside the app's own folders. Instantiated before the window
-  // because the dialogs it drives need to be parented to it, which the closures below do lazily.
+  // because the dialog it drives needs to be parented to it, which the closure below does lazily.
   const fileStore = new FileStore({
     chooseToOpen: () => pickMarkdownFile(popup?.browserWindow ?? null),
-    chooseToSave: (suggestedName) => pickSaveTarget(popup?.browserWindow ?? null, suggestedName),
   });
 
   const windowStateStore = new WindowStateStore(AppPaths.windowState());
@@ -223,26 +221,6 @@ async function pickMarkdownFile(parent: BrowserWindow | null): Promise<string | 
       : await dialog.showOpenDialog(parent, options);
 
   return result.canceled ? null : (result.filePaths[0] ?? null);
-}
-
-/** Native picker for a save destination, seeded with a name derived from the draft. */
-async function pickSaveTarget(
-  parent: BrowserWindow | null,
-  suggestedName: string,
-): Promise<string | null> {
-  const options: SaveDialogOptions = {
-    // Windows appends the default extension when the user types a bare name, so a draft saved
-    // as "reunion" lands as "reunion.md" rather than as an extensionless file.
-    defaultPath: suggestedName.length > 0 ? suggestedName : 'sans-titre.md',
-    filters: [{ name: 'Markdown', extensions: ['md'] }],
-    properties: ['createDirectory', 'showOverwriteConfirmation'],
-  };
-  const result =
-    parent === null || parent.isDestroyed()
-      ? await dialog.showSaveDialog(options)
-      : await dialog.showSaveDialog(parent, options);
-
-  return result.canceled ? null : (result.filePath ?? null);
 }
 
 /** Loads the renderer from the dev server when available, from disk otherwise. */

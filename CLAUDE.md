@@ -66,20 +66,22 @@ pratique.
   barrière contre la traversée de chemin dans un dossier qui peut être n'importe où, et changer le
   réglage **ne déplace pas** les fichiers existants (un déplacement raté à mi-course est exactement
   le risque qu'on refuse).
-- **Écrire un fichier externe se décide sur la provenance, jamais sur la forme du chemin.**
-  Contrairement aux stores ci-dessus, `FileStore` (`src/main/store/file-store.ts`) écrit vers un
-  chemin absolu quelconque, et aucun motif ne distingue un chemin légitime de
-  `C:\Windows\System32\drivers\etc\hosts` : `save` n'accepte donc qu'un chemin que `open` ou
-  `saveAs` a remis **pendant cette exécution**. Le set d'autorisations n'est **pas persisté**,
-  volontairement : le raviver des jours plus tard ferait de `Ctrl+S` l'écrasement silencieux d'un
-  fichier oublié, alors que le repli sur le dialogue coûte un clic. Ne pas le remplacer par une
-  validation de motif ni le persister « pour la commodité ».
-- **CodeMirror normalise toute fin de ligne en `\n` au chargement**, donc le renderer ne peut
-  physiquement pas rendre le `\r\n` d'un fichier Windows. `FileStore` mémorise le newline lu par
-  chemin et le restaure à l'écriture, sinon sauver un document réécrit toutes ses lignes et produit
-  un diff sur le fichier entier sans raison visible. Corollaire côté éditeur : `replaceAll` doit
+- **Un fichier ouvert du disque est en lecture seule, et le rester est une décision.**
+  `FileStore` (`src/main/store/file-store.ts`) n'a qu'une méthode, `open`, et l'app n'expose aucun
+  canal d'écriture externe : `Ctrl+S` n'existe pas. Ce que l'app produit est du texte à coller
+  ailleurs, déjà persisté dans trois endroits qu'elle possède (le brouillon autosauvé, les notes,
+  les prompts), donc un fichier ouvert est une **entrée** dans ce flux, pas une destination.
+  Réintroduire l'écriture ne coûte pas une méthode : il faudrait de nouveau mémoriser les chemins
+  absolus autorisés par un dialogue natif (aucun motif ne distingue un chemin légitime de
+  `C:\Windows\System32\drivers\etc\hosts`), ne pas les persister d'une exécution à l'autre, et
+  restaurer le newline d'origine à l'écriture. C'était le cas jusqu'au 2026-09-04, retiré exprès.
+  Un test vérifie que la classe n'a pas de méthode d'écriture ; pour garder un document ouvert, on
+  l'enregistre dans les notes.
+- **CodeMirror normalise toute fin de ligne en `\n` au chargement**, ce qui n'a plus de
+  conséquence à l'écriture (rien n'est réécrit) mais en garde une au chargement : `replaceAll` doit
   mesurer le **texte converti**, pas la chaîne brute, sinon l'ancre tombe hors document sur du CRLF
-  et la transaction est rejetée en entier (`Selection points outside of document`).
+  et la transaction est rejetée en entier (`Selection points outside of document`). C'est ce qui
+  arrive en ouvrant un fichier Windows.
 - **Chaque preset de réécriture interdit d'inventer du contenu** (`CORE_RULES`). Sans cette
   contrainte, le modèle fabrique des exigences absentes de l'entrée. Elle vaut pour tous les
   presets, sans exception, et un test le vérifie.
@@ -148,12 +150,12 @@ Ces points ont coûté du temps à diagnostiquer, ne pas les réintroduire :
   ni `searchKeymap` ne la réserve. Elle est câblée deux fois, dans le keymap **et** dans le
   `keydown` de la fenêtre, parce que l'aperçu comme le panneau d'aide lui-même n'ont aucune vue
   CodeMirror pour recevoir la touche.
-- **`Ctrl+P`, `Ctrl+O` et `Ctrl+S`** (aperçu, ouvrir, enregistrer) ne passent pas par le keymap
-  CodeMirror mais par un `keydown` au niveau de la fenêtre (`src/renderer/main.ts`), parce que
-  l'aperçu remplace l'éditeur : quand il est affiché, le conteneur de l'éditeur est en
-  `display:none` et le focus est sur le panneau d'aperçu, donc aucune vue CodeMirror ne recevrait
-  la touche. Ils sont volontairement ignorés dès que `Shift` ou `Alt` est tenu, et tant que la page
-  de réglages est ouverte : ses champs texte donneraient un autre sens à `Ctrl+S`.
+- **`Ctrl+P` et `Ctrl+O`** (aperçu, ouvrir) ne passent pas par le keymap CodeMirror mais par un
+  `keydown` au niveau de la fenêtre (`src/renderer/main.ts`), parce que l'aperçu remplace
+  l'éditeur : quand il est affiché, le conteneur de l'éditeur est en `display:none` et le focus est
+  sur le panneau d'aperçu, donc aucune vue CodeMirror ne recevrait la touche. Les deux sont
+  volontairement ignorés dès que `Shift` ou `Alt` est tenu, et tant que la page de réglages est
+  ouverte : ses champs texte donneraient un autre sens à un raccourci d'application.
 - **L'icône des réglages est un jeu de curseurs, pas un engrenage.** Un engrenage a besoin de ses
   dents pour être lisible ; à 14px elles fusionnent et le glyphe se lit comme un astérisque.
 - **`.cm-activeLine` se déclare dans `EditorView.theme`, pas dans la feuille de style.**

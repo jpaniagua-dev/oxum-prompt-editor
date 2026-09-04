@@ -28,7 +28,7 @@ export type AppCommandId =
   | 'escape';
 
 /** Commands bound on the window rather than in the editor. See {@link WINDOW_SHORTCUTS}. */
-export type WindowCommandId = 'togglePreview' | 'openFile' | 'saveFile';
+export type WindowCommandId = 'togglePreview' | 'openFile';
 
 export interface Shortcut<T> {
   /** CodeMirror key notation, e.g. `Mod-Shift-d`. `Mod` is Ctrl on Windows. */
@@ -77,7 +77,6 @@ export const APP_SHORTCUTS: readonly Shortcut<AppCommandId>[] = [
 export const WINDOW_SHORTCUTS: readonly Shortcut<WindowCommandId>[] = [
   { key: 'Mod-p', label: 'Aperçu Markdown, à la place de l’éditeur', command: 'togglePreview' },
   { key: 'Mod-o', label: 'Ouvrir un fichier Markdown du disque', command: 'openFile' },
-  { key: 'Mod-s', label: 'Enregistrer dans le fichier ouvert', command: 'saveFile' },
 ];
 
 /**

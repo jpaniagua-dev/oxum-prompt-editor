@@ -105,8 +105,10 @@ describe('shortcutLabel', () => {
 describe('lookups', () => {
   it('resolves a window shortcut from a raw event key', () => {
     expect(windowCommandFor('p')).toBe('togglePreview');
-    expect(windowCommandFor('S')).toBe('saveFile');
+    expect(windowCommandFor('O')).toBe('openFile');
     expect(windowCommandFor('q')).toBeNull();
+    // Nothing writes to disk any more, so Ctrl+S must resolve to no command at all.
+    expect(windowCommandFor('s')).toBeNull();
   });
 
   it('gives the format bar its wording and its shortcut', () => {

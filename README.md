@@ -60,8 +60,7 @@ cannot fall out of date with the app the way this section can.
 | `Ctrl+R` | Rewrite with the selected preset |
 | `Ctrl+Shift+R` | Open the preset picker |
 | `Ctrl+N` | New prompt (the current one is archived first) |
-| `Ctrl+O` | Open a `.md` file from disk (the current draft is archived first) |
-| `Ctrl+S` | Write back to the opened file, or ask where to save |
+| `Ctrl+O` | Open a `.md` file from disk, read-only (the current draft is archived first) |
 | `Ctrl+P` | Preview: render the Markdown in place of the editor |
 | `Ctrl+H` | History panel |
 | `Ctrl+L` | Prompt library |
@@ -213,19 +212,18 @@ image points at, and links open in the system browser instead of navigating a wi
 way back.
 
 `Ctrl+O` loads a file the way a note loads: the current text is archived first and replaced in a
-single transaction, so one `Ctrl+Z` takes it back. The difference is that the path is remembered,
-and `Ctrl+S` writes straight to it, falling back to a save dialog when nothing is bound. Anything
-that makes the buffer a different document (a new prompt, a note, a restored snapshot) drops the
-binding; a rewrite keeps it, being the same document reworded. Files over 2 MB are refused, because
-the editor re-parses the whole document on every keystroke and a huge one turns the popup into a
-frozen window.
+single transaction, so one `Ctrl+Z` takes it back. The status bar then names where the buffer came
+from, and that is all it does. Files over 2 MB are refused, because the editor re-parses the whole
+document on every keystroke and a huge one turns the popup into a frozen window.
 
-Two of those rules are constraints, not conveniences. The main process only ever writes to a path
-**you** picked in a native dialog during this run, and that authorisation is not persisted:
-reviving it days later would turn `Ctrl+S` into an overwrite of a file you had forgotten about. And
-the line ending a file arrived with is restored on save, because the editor normalises every break
-to `\n` on load, so writing the buffer as-is would rewrite every line of a Windows document and
-show up as a diff over the whole file for no visible reason.
+Reading is the only direction: **the app never writes to a file you opened**, and there is no save
+command. That is a scope decision, not a missing feature. What this app produces is text to paste
+somewhere else, and it already persists that text in three places it owns: the draft, autosaved
+continuously, and the notes and prompts libraries, which name their own files. Writing back would
+instead mean holding an absolute path you picked in a dialog and later accepting it from the
+renderer, where no pattern can tell a legitimate target from `C:\Windows\System32\drivers\etc\hosts`
+and the reward for getting it wrong is an overwritten file. To keep an opened document, save it to
+the notes library.
 
 ## Settings
 
