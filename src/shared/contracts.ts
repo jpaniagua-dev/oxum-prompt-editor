@@ -33,6 +33,25 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 /** What `system` actually resolves to at a given moment. */
 export type ResolvedTheme = 'light' | 'dark';
 
+/** CLI used for prompt rewrites. Selection is explicit: providers never fall back to each other. */
+export type RewriteProvider = 'claude' | 'codex';
+
+/** Settings shared by every local rewrite CLI. */
+export interface RewriteCliSettings {
+  /** Model alias or full name. An empty Codex model lets the CLI choose its current default. */
+  model: string;
+  /** Per-action model override, keyed by preset id. */
+  modelByPresetId: Record<string, string>;
+  /** Absolute path to the CLI. Empty means "resolve automatically". */
+  cliPath: string;
+}
+
+/** Claude-specific rewrite settings. */
+export interface ClaudeRewriteSettings extends RewriteCliSettings {
+  /** Hard spend cap per rewrite, passed to `claude --max-budget-usd`. */
+  maxBudgetUsd: number;
+}
+
 /** The chosen mode together with the theme currently in effect. */
 export interface ThemeState {
   readonly mode: ThemeMode;
@@ -48,7 +67,7 @@ export interface RewritePreset {
   readonly hint: string;
   /** Which family the output belongs to. Drives the picker grouping and the panel actions. */
   readonly kind: PresetKind;
-  /** System prompt handed to `claude --system-prompt`. */
+  /** Instructions handed to the selected rewrite CLI. */
   readonly systemPrompt: string;
 }
 
@@ -66,22 +85,14 @@ export interface AppSettings {
   openAtLogin: boolean;
   /** Editor font size in px. */
   fontSize: number;
-  /** Model alias or full name passed to `claude --model`, for any action with no override. */
-  model: string;
-  /**
-   * Per-action model override, keyed by preset id. An empty or absent entry means "use `model`".
-   *
-   * The right model depends on the task: proofreading is mechanical and cheap, restructuring a
-   * prompt benefits from a stronger one. Keyed by id rather than carried on `RewritePreset` so
-   * that retuning one built-in does not mean redeclaring the whole preset in `settings.json`.
-   */
-  modelByPresetId: Record<string, string>;
-  /** Absolute path to the Claude CLI. Empty means "resolve automatically". */
-  claudePath: string;
+  /** Rewrite CLI selected for every action. */
+  rewriteProvider: RewriteProvider;
+  /** Claude keeps the pre-0.10 defaults and receives migrated legacy values. */
+  claude: ClaudeRewriteSettings;
+  /** Codex defaults to its own current model when `model` is empty. */
+  codex: RewriteCliSettings;
   /** Default preset used by the Rewrite button and its shortcut. */
   defaultPresetId: string;
-  /** Hard spend cap per rewrite, passed to `claude --max-budget-usd`. */
-  maxBudgetUsd: number;
   /**
    * Absolute directory holding the notes. Empty means the default under `userData`.
    *

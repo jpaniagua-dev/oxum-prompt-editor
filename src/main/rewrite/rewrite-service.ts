@@ -1,14 +1,17 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { RewriteEvent, RewritePreset } from '@shared/contracts.js';
-import { buildRewriteArgs, resolveClaudePath } from './claude-cli.js';
-import { StreamJsonParser, type ParsedMessage } from './stream-parser.js';
+import type { RewriteEvent, RewritePreset, RewriteProvider } from '@shared/contracts.js';
+import { claudeAdapter } from '../claude/claude-adapter.js';
+import { codexAdapter } from '../codex/codex-adapter.js';
+import type { ParsedMessage, RewriteAdapter } from './types.js';
 
 /** A rewrite that has not produced a result by then is treated as hung. */
-const TIMEOUT_MS = 90_000;
+export const REWRITE_TIMEOUT_MS = 90_000;
 
 interface RunningRewrite {
   readonly child: ChildProcessWithoutNullStreams;
   readonly timer: NodeJS.Timeout;
+  readonly adapter: RewriteAdapter;
+  readonly startedAt: number;
   /** Set when the user cancelled, so the exit is not reported as a failure. */
   cancelled: boolean;
   /** Set once a terminal event has been emitted, to guarantee exactly one. */
@@ -19,79 +22,116 @@ export interface RewriteOptions {
   readonly requestId: string;
   readonly text: string;
   readonly preset: RewritePreset;
+  readonly provider: RewriteProvider;
   readonly model: string;
-  readonly maxBudgetUsd: number;
-  readonly claudePath: string;
+  readonly maxBudgetUsd: number | null;
+  readonly cliPath: string;
 }
 
+type SpawnProcess = (
+  binary: string,
+  args: string[],
+  options: {
+    readonly windowsHide: true;
+    readonly stdio: readonly ['pipe', 'pipe', 'pipe'];
+    readonly cwd?: string;
+  },
+) => ChildProcessWithoutNullStreams;
+
+export interface RewriteServiceDependencies {
+  readonly adapters: Readonly<Record<RewriteProvider, RewriteAdapter>>;
+  readonly spawnProcess: SpawnProcess;
+  readonly killProcess: (child: ChildProcessWithoutNullStreams) => void;
+  readonly now: () => number;
+  readonly timeoutMs: number;
+}
+
+const DEFAULT_DEPENDENCIES: RewriteServiceDependencies = {
+  adapters: { claude: claudeAdapter, codex: codexAdapter },
+  spawnProcess: (binary, args, options) =>
+    spawn(binary, args, {
+      windowsHide: options.windowsHide,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    }),
+  killProcess: killTree,
+  now: Date.now,
+  timeoutMs: REWRITE_TIMEOUT_MS,
+};
+
 /**
- * Runs prompt rewrites by shelling out to the Claude CLI.
+ * Coordinates rewrite processes while provider adapters own only CLI-specific mechanics.
  *
- * Uses the CLI rather than the HTTP API so the user's existing OAuth session is reused:
- * no API key to store, no second credential to leak.
+ * Selection is strict: an error from one provider is reported as-is and never starts the other.
+ * Cancellation, timeouts and the single-terminal-event guarantee therefore behave identically
+ * for Claude and Codex.
  */
 export class RewriteService {
   private readonly running = new Map<string, RunningRewrite>();
 
-  constructor(private readonly emit: (event: RewriteEvent) => void) {}
+  constructor(
+    private readonly emit: (event: RewriteEvent) => void,
+    private readonly dependencies: RewriteServiceDependencies = DEFAULT_DEPENDENCIES,
+  ) {}
 
-  /**
-   * Starts a rewrite. Resolves as soon as the child process is spawned; the outcome
-   * arrives through the emitter as chunk/done/error events.
-   */
   async start(options: RewriteOptions): Promise<void> {
-    const binary = await resolveClaudePath(options.claudePath);
+    const adapter = this.dependencies.adapters[options.provider];
+    const binary = await adapter.resolvePath(options.cliPath);
     if (binary === null) {
       this.emit({
         type: 'error',
         requestId: options.requestId,
         reason: 'cli-missing',
-        message:
-          "CLI Claude introuvable. Renseigne son chemin dans les réglages (claudePath) ou vérifie qu'il est dans le PATH.",
+        message: `CLI ${adapter.label} introuvable. Renseigne son chemin dans les réglages ou vérifie qu'il est dans le PATH.`,
       });
       return;
     }
 
-    const args = buildRewriteArgs({
-      systemPrompt: options.preset.systemPrompt,
+    const args = adapter.buildArgs({
+      preset: options.preset,
       model: options.model,
       maxBudgetUsd: options.maxBudgetUsd,
     });
 
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(binary, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      const cwd = adapter.workingDirectory(binary);
+      child = this.dependencies.spawnProcess(binary, args, {
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        ...(cwd === undefined ? {} : { cwd }),
+      });
     } catch (error) {
       this.emit({
         type: 'error',
         requestId: options.requestId,
         reason: 'cli-failed',
-        message: `Lancement du CLI impossible: ${describeError(error)}`,
+        message: `${adapter.label} : lancement du CLI impossible : ${describeError(error)}`,
       });
       return;
     }
 
     const entry: RunningRewrite = {
       child,
+      adapter,
+      startedAt: this.dependencies.now(),
       cancelled: false,
       settled: false,
       timer: setTimeout(() => {
         const current = this.running.get(options.requestId);
-        if (current === undefined) {
-          return;
-        }
+        if (current === undefined) return;
         this.settle(options.requestId, {
           type: 'error',
           requestId: options.requestId,
           reason: 'timeout',
-          message: `Aucune réponse après ${TIMEOUT_MS / 1000}s, réécriture abandonnée.`,
+          message: `${adapter.label} : aucune réponse après ${this.dependencies.timeoutMs / 1000}s, réécriture abandonnée.`,
         });
-        killTree(current.child);
-      }, TIMEOUT_MS),
+        this.dependencies.killProcess(current.child);
+      }, this.dependencies.timeoutMs),
     };
     this.running.set(options.requestId, entry);
 
-    const parser = new StreamJsonParser();
+    const parser = adapter.createParser();
     let stderr = '';
 
     child.stdout.setEncoding('utf8');
@@ -101,7 +141,6 @@ export class RewriteService {
 
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
-      // Keep only the tail: a verbose failure should not balloon memory.
       stderr = `${stderr}${chunk}`.slice(-4000);
     });
 
@@ -110,7 +149,7 @@ export class RewriteService {
         type: 'error',
         requestId: options.requestId,
         reason: 'cli-failed',
-        message: describeError(error),
+        message: `${adapter.label} : ${describeError(error)}`,
       });
     });
 
@@ -128,44 +167,47 @@ export class RewriteService {
           reason: 'cancelled',
           message: 'Réécriture annulée.',
         });
+        this.cleanup(options.requestId);
         return;
       }
-      // Exited without ever emitting a `result` message: report the stderr tail, which is
-      // where auth failures and bad flags actually surface.
+      const detail = stderr.trim();
       this.settle(options.requestId, {
         type: 'error',
         requestId: options.requestId,
         reason: 'cli-failed',
-        message: stderr.trim().length > 0 ? stderr.trim() : `CLI terminé avec le code ${code}.`,
+        message:
+          detail.length > 0
+            ? `${adapter.label} : ${detail}`
+            : `${adapter.label} : CLI terminé avec le code ${code}.`,
       });
+      this.cleanup(options.requestId);
     });
 
-    // The draft goes over stdin: no command-line length limit, no quote escaping.
     child.stdin.on('error', () => {
       /* Broken pipe on an already-dead child: the close handler reports it. */
     });
     child.stdin.end(options.text, 'utf8');
   }
 
-  /** Cancels a running rewrite, killing the whole process tree. */
   cancel(requestId: string): void {
     const entry = this.running.get(requestId);
-    if (entry === undefined) {
-      return;
-    }
+    if (entry === undefined) return;
     entry.cancelled = true;
-    killTree(entry.child);
+    this.dependencies.killProcess(entry.child);
   }
 
-  /** Cancels everything, for app shutdown. */
   cancelAll(): void {
-    for (const requestId of [...this.running.keys()]) {
-      this.cancel(requestId);
-    }
+    for (const requestId of [...this.running.keys()]) this.cancel(requestId);
   }
 
-  /** Turns parser output into renderer events. */
+  resetPathCache(provider: RewriteProvider): void {
+    this.dependencies.adapters[provider].resetPathCache();
+  }
+
   private consume(requestId: string, messages: readonly ParsedMessage[]): void {
+    const entry = this.running.get(requestId);
+    if (entry === undefined || entry.settled) return;
+
     for (const message of messages) {
       if (message.kind === 'delta') {
         this.emit({ type: 'chunk', requestId, text: message.text });
@@ -177,7 +219,9 @@ export class RewriteService {
           requestId,
           reason: 'cli-failed',
           message:
-            message.text.trim().length > 0 ? message.text : 'Le CLI a renvoyé un résultat vide.',
+            message.text.trim().length > 0
+              ? `${entry.adapter.label} : ${message.text}`
+              : `${entry.adapter.label} : le CLI a renvoyé un résultat vide.`,
         });
         continue;
       }
@@ -186,18 +230,18 @@ export class RewriteService {
         requestId,
         text: message.text,
         costUsd: message.costUsd,
-        durationMs: message.durationMs,
+        durationMs:
+          entry.adapter.provider === 'codex'
+            ? this.dependencies.now() - entry.startedAt
+            : message.durationMs,
       });
     }
   }
 
-  /** Emits a terminal event at most once per request, then releases its resources. */
   private settle(requestId: string, event: RewriteEvent): void {
     const entry = this.running.get(requestId);
     if (entry !== undefined) {
-      if (entry.settled) {
-        return;
-      }
+      if (entry.settled) return;
       entry.settled = true;
       clearTimeout(entry.timer);
     }
@@ -206,24 +250,16 @@ export class RewriteService {
 
   private cleanup(requestId: string): void {
     const entry = this.running.get(requestId);
-    if (entry !== undefined) {
-      clearTimeout(entry.timer);
-      this.running.delete(requestId);
-    }
+    if (entry === undefined) return;
+    clearTimeout(entry.timer);
+    this.running.delete(requestId);
   }
 }
 
-/**
- * Kills a child and its descendants.
- *
- * `child.kill()` on Windows only signals the direct child, which would leave the CLI's own
- * subprocesses running and holding the API call open. `taskkill /T` walks the tree.
- */
+/** Kills a child and its descendants, including the CLI subprocess tree on Windows. */
 function killTree(child: ChildProcessWithoutNullStreams): void {
   const pid = child.pid;
-  if (pid === undefined) {
-    return;
-  }
+  if (pid === undefined) return;
   if (process.platform !== 'win32') {
     child.kill('SIGTERM');
     return;

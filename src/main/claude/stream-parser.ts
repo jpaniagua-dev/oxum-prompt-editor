@@ -13,22 +13,9 @@
  * the text the user actually applies.
  */
 
-export interface ParsedDelta {
-  readonly kind: 'delta';
-  readonly text: string;
-}
+import type { ParsedMessage, RewriteOutputParser } from '../rewrite/types.js';
 
-export interface ParsedResult {
-  readonly kind: 'result';
-  readonly text: string;
-  readonly costUsd: number | null;
-  readonly durationMs: number;
-  readonly isError: boolean;
-}
-
-export type ParsedMessage = ParsedDelta | ParsedResult;
-
-export class StreamJsonParser {
+export class StreamJsonParser implements RewriteOutputParser {
   private buffer = '';
 
   /** Feeds raw stdout text and returns whatever complete messages it yielded. */

@@ -9,6 +9,18 @@ const execFileAsync = promisify(execFile);
 /** Cached result so the lookup runs once per session, not once per rewrite. */
 let cachedPath: string | null = null;
 
+export interface ClaudePathDependencies {
+  readonly exists: (path: string) => boolean;
+  readonly findOnPath: () => Promise<string | null>;
+  readonly homeDirectory: string;
+}
+
+const defaultDependencies: ClaudePathDependencies = {
+  exists: existsSync,
+  findOnPath: whichClaude,
+  homeDirectory: homedir(),
+};
+
 /**
  * Locates the Claude CLI.
  *
@@ -19,23 +31,26 @@ let cachedPath: string | null = null;
  * @param configuredPath Value of the `claudePath` setting; empty means auto-detect.
  * @returns Absolute path to the executable, or null when it cannot be found.
  */
-export async function resolveClaudePath(configuredPath: string): Promise<string | null> {
+export async function resolveClaudePath(
+  configuredPath: string,
+  dependencies: ClaudePathDependencies = defaultDependencies,
+): Promise<string | null> {
   if (configuredPath.length > 0) {
-    return existsSync(configuredPath) ? configuredPath : null;
+    return dependencies.exists(configuredPath) ? configuredPath : null;
   }
-  if (cachedPath !== null) {
+  if (dependencies === defaultDependencies && cachedPath !== null) {
     return cachedPath;
   }
 
-  const fromPath = await whichClaude();
-  if (fromPath !== null) {
-    cachedPath = fromPath;
+  const fromPath = await dependencies.findOnPath();
+  if (fromPath !== null && dependencies.exists(fromPath)) {
+    if (dependencies === defaultDependencies) cachedPath = fromPath;
     return fromPath;
   }
 
-  const fallback = join(homedir(), '.local', 'bin', 'claude.exe');
-  if (existsSync(fallback)) {
-    cachedPath = fallback;
+  const fallback = join(dependencies.homeDirectory, '.local', 'bin', 'claude.exe');
+  if (dependencies.exists(fallback)) {
+    if (dependencies === defaultDependencies) cachedPath = fallback;
     return fallback;
   }
 
@@ -76,7 +91,7 @@ async function whichClaude(): Promise<string | null> {
  * line at roughly 32k characters and quoting a multi-line Markdown document through the
  * shell is a bug waiting to happen.
  */
-export function buildRewriteArgs(options: {
+export function buildClaudeArgs(options: {
   systemPrompt: string;
   model: string;
   maxBudgetUsd: number;

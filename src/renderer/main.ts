@@ -9,6 +9,7 @@ import type {
   RewriteErrorEvent,
   RewriteEvent,
   RewritePreset,
+  RewriteProvider,
   ThemeMode,
   ThemeState,
 } from '@shared/contracts.js';
@@ -81,6 +82,8 @@ class App {
   private activeRewriteId: string | null = null;
   /** Family of the preset in flight, which decides how the result panel presents its actions. */
   private activeRewriteKind: PresetKind = 'agent-prompt';
+  /** Provider captured at start, so the result always names the engine that actually ran. */
+  private activeRewriteProvider: RewriteProvider = 'claude';
   private rewriteBuffer = '';
 
   async start(): Promise<void> {
@@ -440,10 +443,9 @@ class App {
       hideOnBlur: next.hideOnBlur,
       openAtLogin: next.openAtLogin,
       fontSize: next.fontSize,
-      model: next.model,
-      modelByPresetId: next.modelByPresetId,
-      claudePath: next.claudePath,
-      maxBudgetUsd: next.maxBudgetUsd,
+      rewriteProvider: next.rewriteProvider,
+      claude: next.claude,
+      codex: next.codex,
       notesDirectory: next.notesDirectory,
       promptsDirectory: next.promptsDirectory,
     });
@@ -837,18 +839,20 @@ class App {
 
     const preset = this.presets.find((candidate) => candidate.id === presetId);
     this.activeRewriteKind = preset?.kind ?? 'agent-prompt';
-    this.panel.open('rewrite', `Réécriture · ${preset?.label ?? presetId}`, () => {
+    this.activeRewriteProvider = this.settings?.rewriteProvider ?? 'claude';
+    const provider = providerLabel(this.activeRewriteProvider);
+    this.panel.open('rewrite', `Réécriture · ${provider} · ${preset?.label ?? presetId}`, () => {
       if (this.activeRewriteId !== null) {
         void window.api.cancelRewrite(this.activeRewriteId);
       }
     });
-    this.panel.setPending('Rédaction en cours…');
+    this.panel.setPending(`${provider} rédige…`);
     this.panel.setStreaming(true);
     this.panel.setActions([
       { label: 'Annuler', onClick: () => void window.api.cancelRewrite(requestId) },
     ]);
     this.setRewriteButtonBusy(true);
-    this.statusBar.setMessage('réécriture en cours…');
+    this.statusBar.setMessage(`${provider} · réécriture en cours…`);
 
     await window.api.startRewrite({ requestId, text: original, presetId });
   }
@@ -881,7 +885,9 @@ class App {
     this.panel.setText(text);
 
     const cost = costUsd === null ? '' : ` · ${costUsd.toFixed(4)} $`;
-    this.statusBar.setMessage(`réécriture terminée en ${(durationMs / 1000).toFixed(1)}s${cost}`);
+    this.statusBar.setMessage(
+      `${providerLabel(this.activeRewriteProvider)} · réécriture terminée en ${(durationMs / 1000).toFixed(1)}s${cost}`,
+    );
 
     // A `text` result is meant to be sent somewhere else, not to become the draft, so copying
     // is the primary action there. Applying stays available: it is snapshotted and undoable.
@@ -916,6 +922,7 @@ class App {
     // stays until the panel is closed. A toast on top would be the same error twice.
     this.panel.setError(message);
     this.panel.setActions([{ label: 'Relancer', onClick: () => void this.retryRewrite() }]);
+    this.statusBar.setMessage(`${providerLabel(this.activeRewriteProvider)} · échec de la réécriture`);
   }
 
   /**
@@ -1200,6 +1207,10 @@ function describeReason(reason: HistoryEntry['reason']): string {
     case 'manual':
       return 'manuel';
   }
+}
+
+function providerLabel(provider: RewriteProvider): string {
+  return provider === 'codex' ? 'Codex' : 'Claude';
 }
 
 function describeError(error: unknown): string {

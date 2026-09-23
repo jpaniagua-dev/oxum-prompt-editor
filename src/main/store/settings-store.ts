@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
-import type { AppSettings, RewritePreset, ThemeMode, WindowBounds } from '@shared/contracts.js';
+import type {
+  AppSettings,
+  RewritePreset,
+  RewriteProvider,
+  ThemeMode,
+  WindowBounds,
+} from '@shared/contracts.js';
 import { atomicWriteFile, fileExists } from './atomic-write.js';
 
 /** Defaults chosen so a fresh install is immediately usable with no configuration. */
@@ -15,11 +21,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hideOnBlur: false,
   openAtLogin: false,
   fontSize: 15,
-  model: 'sonnet',
-  modelByPresetId: {},
-  claudePath: '',
+  rewriteProvider: 'claude',
+  claude: {
+    model: 'sonnet',
+    modelByPresetId: {},
+    cliPath: '',
+    maxBudgetUsd: 0.5,
+  },
+  codex: {
+    // Empty on purpose: Codex then uses the current CLI default rather than a stale app default.
+    model: '',
+    modelByPresetId: {},
+    cliPath: '',
+  },
   defaultPresetId: 'structure',
-  maxBudgetUsd: 0.5,
   // Empty means "the default directory under userData", resolved by the caller. Storing the
   // resolved path instead would freeze it, and it moves with the Electron user data directory
   // (a dev run uses its own).
@@ -37,7 +52,7 @@ export const DEFAULT_BOUNDS: WindowBounds = { x: -1, y: -1, width: 820, height: 
  * hand-edited or outdated file degrades instead of breaking startup.
  */
 export class SettingsStore {
-  private cache: AppSettings = { ...DEFAULT_SETTINGS };
+  private cache: AppSettings = freshDefaults();
 
   constructor(private readonly filePath: string) {}
 
@@ -74,9 +89,11 @@ export class SettingsStore {
  */
 export function sanitizeSettings(raw: unknown): AppSettings {
   if (typeof raw !== 'object' || raw === null) {
-    return { ...DEFAULT_SETTINGS };
+    return freshDefaults();
   }
   const input = raw as Record<string, unknown>;
+  const claude = asRecord(input.claude);
+  const codex = asRecord(input.codex);
 
   return {
     globalShortcut: asString(input.globalShortcut, DEFAULT_SETTINGS.globalShortcut),
@@ -85,11 +102,32 @@ export function sanitizeSettings(raw: unknown): AppSettings {
     hideOnBlur: asBoolean(input.hideOnBlur, DEFAULT_SETTINGS.hideOnBlur),
     openAtLogin: asBoolean(input.openAtLogin, DEFAULT_SETTINGS.openAtLogin),
     fontSize: clamp(asNumber(input.fontSize, DEFAULT_SETTINGS.fontSize), 10, 32),
-    model: asString(input.model, DEFAULT_SETTINGS.model),
-    modelByPresetId: asModelMap(input.modelByPresetId),
-    claudePath: asString(input.claudePath, DEFAULT_SETTINGS.claudePath),
+    rewriteProvider: asRewriteProvider(input.rewriteProvider),
+    claude: {
+      // The top-level fallbacks migrate every settings file written before v0.10.0.
+      model: asString(claude.model, asString(input.model, DEFAULT_SETTINGS.claude.model)),
+      modelByPresetId: asModelMap(
+        claude.modelByPresetId === undefined ? input.modelByPresetId : claude.modelByPresetId,
+      ),
+      cliPath: asString(
+        claude.cliPath,
+        asString(input.claudePath, DEFAULT_SETTINGS.claude.cliPath),
+      ),
+      maxBudgetUsd: clamp(
+        asNumber(
+          claude.maxBudgetUsd,
+          asNumber(input.maxBudgetUsd, DEFAULT_SETTINGS.claude.maxBudgetUsd),
+        ),
+        0.01,
+        20,
+      ),
+    },
+    codex: {
+      model: asString(codex.model, DEFAULT_SETTINGS.codex.model),
+      modelByPresetId: asModelMap(codex.modelByPresetId),
+      cliPath: asString(codex.cliPath, DEFAULT_SETTINGS.codex.cliPath),
+    },
     defaultPresetId: asString(input.defaultPresetId, DEFAULT_SETTINGS.defaultPresetId),
-    maxBudgetUsd: clamp(asNumber(input.maxBudgetUsd, DEFAULT_SETTINGS.maxBudgetUsd), 0.01, 20),
     notesDirectory: asAbsolutePath(input.notesDirectory),
     promptsDirectory: asAbsolutePath(input.promptsDirectory),
     customPresets: asPresets(input.customPresets),
@@ -100,11 +138,37 @@ export function sanitizeSettings(raw: unknown): AppSettings {
  * Model to use for one action: its own override when set, the global default otherwise.
  *
  * The fallback is what makes the feature safe to extend: a preset added later, by hand in
- * `settings.json`, has no entry here and must still run rather than fail on an empty model.
+ * `settings.json`, has no entry here and must still inherit the selected provider's default.
+ * Codex is the deliberate exception where that default may itself be empty, which omits the flag.
  */
-export function resolveModelForPreset(settings: AppSettings, presetId: string): string {
-  const override = settings.modelByPresetId[presetId]?.trim() ?? '';
-  return override.length > 0 ? override : settings.model;
+export function resolveModelForPreset(
+  settings: AppSettings,
+  provider: RewriteProvider,
+  presetId: string,
+): string {
+  const providerSettings = settings[provider];
+  const override = providerSettings.modelByPresetId[presetId]?.trim() ?? '';
+  return override.length > 0 ? override : providerSettings.model.trim();
+}
+
+/** Returns a fresh value so editing nested provider maps can never mutate the exported defaults. */
+function freshDefaults(): AppSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    claude: { ...DEFAULT_SETTINGS.claude, modelByPresetId: {} },
+    codex: { ...DEFAULT_SETTINGS.codex, modelByPresetId: {} },
+    customPresets: [],
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asRewriteProvider(value: unknown): RewriteProvider {
+  return value === 'codex' ? 'codex' : 'claude';
 }
 
 /**

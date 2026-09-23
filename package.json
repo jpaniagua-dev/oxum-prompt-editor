@@ -1,6 +1,6 @@
 {
   "name": "oxum-prompt-editor",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "A popup Markdown editor for writing prompts you can never lose, then pasting them into a terminal agent.",
   "author": "Julio Paniagua",
   "license": "MIT",

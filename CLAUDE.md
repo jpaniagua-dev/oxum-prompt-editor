@@ -46,7 +46,8 @@ pratique.
   pointe une image Markdown) et les liens partent dans le navigateur système, une fenêtre sans
   navigation n'ayant aucun retour possible.
 - **Le brouillon passe au CLI par stdin**, jamais en argv (limite ~32k sur Windows, plus l'enfer
-  du quoting).
+  du quoting). Les instructions du preset restent séparées : `--system-prompt` pour Claude,
+  argument de prompt pour `codex exec`.
 - **Deux régimes de stockage.** `HistoryStore` accumule tout seul, donc ses instantanés sont
   jetables : pruning à 200 et purge explicite (`clear()`). `LibraryStore` ne prune **jamais** et ne
   supprime que sur demande, une entrée à la fois : elle a été créée exprès. Inverser ces deux
@@ -98,10 +99,17 @@ pratique.
   registre est une affaire de style ; le tu/vous est un fait relationnel que le brouillon ne dit
   pas. Sans interdiction, un modèle à qui on demande du soutenu bascule un texte français en
   « vous » et change silencieusement à qui l'auteur semble parler.
-- **Le modèle est résolu par action**, pas globalement : `resolveModelForPreset` prend l'override
-  de `modelByPresetId`, sinon `model`. Le repli sur le défaut n'est pas cosmétique : un preset
-  ajouté à la main dans `settings.json` n'a pas d'entrée, et sans repli le CLI serait appelé avec
-  un `--model` vide.
+- **Le fournisseur est explicite et sans fallback.** `rewriteProvider` sélectionne Claude ou
+  Codex pour toute réécriture ; une erreur d'un CLI est montrée, jamais masquée par un lancement
+  de l'autre. Chaque fournisseur garde son propre `model` et ses `modelByPresetId` :
+  `resolveModelForPreset` prend l'override du fournisseur sélectionné, sinon son défaut. Un modèle
+  Codex vide est intentionnel et omet `--model`, pour laisser le CLI choisir son modèle courant.
+- **Codex ne reçoit aucun contexte de projet.** L'adaptateur lance `codex exec` depuis le dossier
+  du binaire avec `--ephemeral`, `--ignore-user-config`, `--sandbox read-only`,
+  `--skip-git-repo-check` et `--json`. Son parser retient le dernier `agent_message` et ne conclut
+  que sur `turn.completed`, `turn.failed` ou `error`. Le coordinateur commun reste seul
+  responsable du timeout, de l'annulation de l'arbre de processus et de l'unique événement
+  terminal.
 - **Le verrou d'instance unique fait sortir l'instance perdante par `app.exit(0)`**, pas
   `app.quit()` : `quit()` est asynchrone et n'interrompt pas le script, donc l'instance condamnée
   continuait dans `bootstrap()` et ouvrait le `draft.md` et le `settings.json` que l'instance

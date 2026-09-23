@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { BUILT_IN_PRESETS, mergePresets, resolvePreset } from '../src/main/claude/presets.js';
-import { buildRewriteArgs } from '../src/main/claude/claude-cli.js';
+import {
+  buildClaudeArgs,
+  resolveClaudePath,
+  type ClaudePathDependencies,
+} from '../src/main/claude/claude-cli.js';
+import {
+  buildCodexArgs,
+  resolveCodexPath,
+  type CodexPathDependencies,
+} from '../src/main/codex/codex-cli.js';
 import {
   DEFAULT_SETTINGS,
   resolveModelForPreset,
@@ -129,8 +138,8 @@ describe('presets', () => {
   });
 });
 
-describe('buildRewriteArgs', () => {
-  const args = buildRewriteArgs({ systemPrompt: 'SYS', model: 'sonnet', maxBudgetUsd: 0.5 });
+describe('buildClaudeArgs', () => {
+  const args = buildClaudeArgs({ systemPrompt: 'SYS', model: 'sonnet', maxBudgetUsd: 0.5 });
 
   it('runs headless with no tools, so a rewrite can never touch the filesystem', () => {
     expect(args).toContain('--print');
@@ -164,6 +173,70 @@ describe('buildRewriteArgs', () => {
   });
 });
 
+describe('buildCodexArgs', () => {
+  it('builds the exact isolated non-interactive invocation', () => {
+    expect(buildCodexArgs({ systemPrompt: 'SYS', model: 'gpt-codex' })).toEqual([
+      'exec',
+      '--ephemeral',
+      '--ignore-user-config',
+      '--sandbox',
+      'read-only',
+      '--skip-git-repo-check',
+      '--json',
+      '--model',
+      'gpt-codex',
+      'SYS',
+    ]);
+  });
+
+  it('omits --model when Codex should choose its current default', () => {
+    const args = buildCodexArgs({ systemPrompt: 'SYS', model: '   ' });
+    expect(args).not.toContain('--model');
+    expect(args.at(-1)).toBe('SYS');
+  });
+});
+
+describe('CLI detection', () => {
+  it('prefers a configured Claude path, then PATH, then the local fallback', async () => {
+    const existing = new Set(['C:\\configured\\claude.exe', 'C:\\path\\claude.exe']);
+    const dependencies: ClaudePathDependencies = {
+      exists: (path) => existing.has(path),
+      findOnPath: async () => 'C:\\path\\claude.exe',
+      homeDirectory: 'C:\\Users\\me',
+    };
+    await expect(resolveClaudePath('C:\\configured\\claude.exe', dependencies)).resolves.toBe(
+      'C:\\configured\\claude.exe',
+    );
+    await expect(resolveClaudePath('', dependencies)).resolves.toBe('C:\\path\\claude.exe');
+
+    existing.delete('C:\\path\\claude.exe');
+    existing.add('C:\\Users\\me\\.local\\bin\\claude.exe');
+    await expect(resolveClaudePath('', dependencies)).resolves.toBe(
+      'C:\\Users\\me\\.local\\bin\\claude.exe',
+    );
+  });
+
+  it('prefers a configured Codex path, then PATH, then the desktop app binary', async () => {
+    const existing = new Set(['C:\\configured\\codex.exe', 'C:\\path\\codex.exe']);
+    const dependencies: CodexPathDependencies = {
+      exists: (path) => existing.has(path),
+      findOnPath: async () => 'C:\\path\\codex.exe',
+      appBinDirectory: 'C:\\app\\bin',
+      findInApp: () => 'C:\\app\\bin\\hash\\codex.exe',
+    };
+    await expect(resolveCodexPath('C:\\configured\\codex.exe', dependencies)).resolves.toBe(
+      'C:\\configured\\codex.exe',
+    );
+    await expect(resolveCodexPath('', dependencies)).resolves.toBe('C:\\path\\codex.exe');
+
+    existing.delete('C:\\path\\codex.exe');
+    existing.add('C:\\app\\bin\\hash\\codex.exe');
+    await expect(resolveCodexPath('', dependencies)).resolves.toBe(
+      'C:\\app\\bin\\hash\\codex.exe',
+    );
+  });
+});
+
 describe('sanitizeSettings', () => {
   it('falls back to defaults for junk input', () => {
     expect(sanitizeSettings(null)).toEqual(DEFAULT_SETTINGS);
@@ -176,16 +249,19 @@ describe('sanitizeSettings', () => {
       globalShortcut: 'Control+Alt+P',
       alwaysOnTop: 'yes',
       fontSize: 999,
-      maxBudgetUsd: -5,
-      model: 'opus',
+      claude: { model: 'opus', modelByPresetId: {}, cliPath: '', maxBudgetUsd: -5 },
+      codex: { model: 'gpt-codex', modelByPresetId: {}, cliPath: '' },
+      rewriteProvider: 'codex',
       unknownKey: 'dropped',
     });
 
     expect(settings.globalShortcut).toBe('Control+Alt+P');
     expect(settings.alwaysOnTop).toBe(DEFAULT_SETTINGS.alwaysOnTop);
     expect(settings.fontSize).toBe(32);
-    expect(settings.maxBudgetUsd).toBe(0.01);
-    expect(settings.model).toBe('opus');
+    expect(settings.claude.maxBudgetUsd).toBe(0.01);
+    expect(settings.claude.model).toBe('opus');
+    expect(settings.codex.model).toBe('gpt-codex');
+    expect(settings.rewriteProvider).toBe('codex');
     expect(settings).not.toHaveProperty('unknownKey');
   });
 
@@ -224,19 +300,49 @@ describe('sanitizeSettings', () => {
     });
   });
 
-  it('normalises the per-action model map and drops blank overrides', () => {
+  it('migrates the legacy Claude keys without losing their values', () => {
+    const settings = sanitizeSettings({
+      model: 'opus',
+      modelByPresetId: { fix: 'haiku' },
+      claudePath: 'C:\\tools\\claude.exe',
+      maxBudgetUsd: 1.25,
+    });
+
+    expect(settings.rewriteProvider).toBe('claude');
+    expect(settings.claude).toEqual({
+      model: 'opus',
+      modelByPresetId: { fix: 'haiku' },
+      cliPath: 'C:\\tools\\claude.exe',
+      maxBudgetUsd: 1.25,
+    });
+    expect(settings.codex).toEqual(DEFAULT_SETTINGS.codex);
+    expect(settings).not.toHaveProperty('model');
+  });
+
+  it('normalises each provider model map and drops blank overrides', () => {
     // "No override" must have one representation, otherwise an empty string would shadow the
     // global default and the CLI would be called with --model "".
     const settings = sanitizeSettings({
-      modelByPresetId: { fix: '  haiku  ', chat: '', spec: 42, structure: 'opus' },
+      claude: {
+        model: 'sonnet',
+        modelByPresetId: { fix: '  haiku  ', chat: '', spec: 42, structure: 'opus' },
+        cliPath: '',
+        maxBudgetUsd: 0.5,
+      },
+      codex: { model: '', modelByPresetId: { spec: '  gpt-codex ' }, cliPath: '' },
     });
 
-    expect(settings.modelByPresetId).toEqual({ fix: 'haiku', structure: 'opus' });
+    expect(settings.claude.modelByPresetId).toEqual({ fix: 'haiku', structure: 'opus' });
+    expect(settings.codex.modelByPresetId).toEqual({ spec: 'gpt-codex' });
   });
 
   it('ignores a per-action model map that is not an object', () => {
-    expect(sanitizeSettings({ modelByPresetId: 'haiku' }).modelByPresetId).toEqual({});
-    expect(sanitizeSettings({ modelByPresetId: ['haiku'] }).modelByPresetId).toEqual({});
+    expect(sanitizeSettings({ claude: { modelByPresetId: 'haiku' } }).claude.modelByPresetId).toEqual(
+      {},
+    );
+    expect(sanitizeSettings({ codex: { modelByPresetId: ['gpt'] } }).codex.modelByPresetId).toEqual(
+      {},
+    );
   });
 
   it('rejects a relative notes directory rather than resolving it', () => {
@@ -265,24 +371,39 @@ describe('sanitizeSettings', () => {
 });
 
 describe('resolveModelForPreset', () => {
-  const base = { ...DEFAULT_SETTINGS, model: 'sonnet' };
+  const base = sanitizeSettings({
+    claude: { model: 'sonnet', modelByPresetId: {}, cliPath: '', maxBudgetUsd: 0.5 },
+    codex: { model: '', modelByPresetId: {}, cliPath: '' },
+  });
 
   it('uses the per-action override when there is one', () => {
-    const settings = { ...base, modelByPresetId: { fix: 'haiku', structure: 'opus' } };
-    expect(resolveModelForPreset(settings, 'fix')).toBe('haiku');
-    expect(resolveModelForPreset(settings, 'structure')).toBe('opus');
+    const settings = {
+      ...base,
+      claude: { ...base.claude, modelByPresetId: { fix: 'haiku', structure: 'opus' } },
+      codex: { ...base.codex, modelByPresetId: { fix: 'gpt-codex' } },
+    };
+    expect(resolveModelForPreset(settings, 'claude', 'fix')).toBe('haiku');
+    expect(resolveModelForPreset(settings, 'claude', 'structure')).toBe('opus');
+    expect(resolveModelForPreset(settings, 'codex', 'fix')).toBe('gpt-codex');
   });
 
   it('falls back to the global model for an action with no override', () => {
     // The fallback is what lets a preset be added later, by hand, without also having to add a
     // model for it: without it the CLI would be called with an empty --model.
-    const settings = { ...base, modelByPresetId: { fix: 'haiku' } };
-    expect(resolveModelForPreset(settings, 'chat')).toBe('sonnet');
-    expect(resolveModelForPreset(settings, 'un-preset-perso')).toBe('sonnet');
+    const settings = {
+      ...base,
+      claude: { ...base.claude, modelByPresetId: { fix: 'haiku' } },
+    };
+    expect(resolveModelForPreset(settings, 'claude', 'chat')).toBe('sonnet');
+    expect(resolveModelForPreset(settings, 'claude', 'un-preset-perso')).toBe('sonnet');
+    expect(resolveModelForPreset(settings, 'codex', 'chat')).toBe('');
   });
 
   it('treats a blank override as no override', () => {
-    const settings = { ...base, modelByPresetId: { fix: '   ' } };
-    expect(resolveModelForPreset(settings, 'fix')).toBe('sonnet');
+    const settings = {
+      ...base,
+      claude: { ...base.claude, modelByPresetId: { fix: '   ' } },
+    };
+    expect(resolveModelForPreset(settings, 'claude', 'fix')).toBe('sonnet');
   });
 });

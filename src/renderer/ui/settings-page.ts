@@ -1,4 +1,9 @@
-import type { AppSettings, LibraryId, RewritePreset } from '@shared/contracts.js';
+import type {
+  AppSettings,
+  LibraryId,
+  RewritePreset,
+  RewriteProvider,
+} from '@shared/contracts.js';
 import { clearChildren, createElement, requireElement } from './dom.js';
 
 export interface SettingsPageCallbacks {
@@ -51,7 +56,7 @@ export class SettingsPage {
     presets: readonly RewritePreset[],
     defaultDirectories: Readonly<Record<LibraryId, string>>,
   ): void {
-    // A structured clone rather than a spread: `modelByPresetId` is nested, and a shallow copy
+    // A structured clone rather than a spread: the provider model maps are nested, and a shallow copy
     // would let a field edit reach the caller's object before anything was saved.
     this.draft = structuredClone(settings);
     this.original = JSON.stringify(settings);
@@ -60,7 +65,7 @@ export class SettingsPage {
     this.body.append(
       this.windowSection(),
       this.editorSection(),
-      this.claudeSection(presets),
+      this.rewriteSection(presets),
       this.storageSection(defaultDirectories),
     );
     this.markDirty();
@@ -172,34 +177,73 @@ export class SettingsPage {
     return section;
   }
 
-  private claudeSection(presets: readonly RewritePreset[]): HTMLElement {
+  private rewriteSection(presets: readonly RewritePreset[]): HTMLElement {
     const draft = this.require();
-    const section = createSection('Claude');
+    const section = createSection('Réécriture');
     section.append(
+      selectField({
+        label: 'Moteur',
+        value: draft.rewriteProvider,
+        options: [
+          ['claude', 'Claude'],
+          ['codex', 'Codex'],
+        ],
+        onChange: (value) =>
+          this.edit((d) => {
+            d.rewriteProvider = value === 'codex' ? 'codex' : 'claude';
+          }),
+      }),
+      this.providerGroup('Claude', 'claude', presets),
+      this.providerGroup('Codex', 'codex', presets),
+    );
+    return section;
+  }
+
+  private providerGroup(
+    label: string,
+    provider: RewriteProvider,
+    presets: readonly RewritePreset[],
+  ): HTMLElement {
+    const draft = this.require();
+    const settings = draft[provider];
+    const group = createElement('div', { className: 'settings-group settings-provider' });
+    group.append(createElement('div', { className: 'settings-group__title', text: label }));
+    group.append(
       textField({
         label: 'Modèle par défaut',
-        value: draft.model,
-        hint: 'Alias ou nom complet, utilisé par toute action sans modèle propre.',
-        onCommit: (value) => this.edit((d) => (d.model = value)),
+        value: settings.model,
+        ...(provider === 'codex' ? { placeholder: 'Modèle courant du CLI' } : {}),
+        hint:
+          provider === 'codex'
+            ? 'Vide : Codex choisit son modèle courant. Sinon, alias ou nom complet utilisé sans override.'
+            : 'Alias ou nom complet, utilisé par toute action sans modèle propre.',
+        onCommit: (value) => this.edit((d) => (d[provider].model = value)),
       }),
       textField({
         label: 'Chemin du CLI',
-        value: draft.claudePath,
+        value: settings.cliPath,
         placeholder: 'Détection automatique',
-        hint: 'Vide : recherche dans le PATH, puis dans le dossier d’installation par défaut.',
-        onCommit: (value) => this.edit((d) => (d.claudePath = value)),
+        hint:
+          provider === 'codex'
+            ? 'Vide : recherche dans le PATH, puis dans l’installation locale de l’application Codex.'
+            : 'Vide : recherche dans le PATH, puis dans le dossier d’installation par défaut.',
+        onCommit: (value) => this.edit((d) => (d[provider].cliPath = value)),
       }),
-      numberField({
-        label: 'Budget par réécriture (USD)',
-        value: draft.maxBudgetUsd,
-        min: 0.01,
-        max: 20,
-        step: 0.05,
-        onCommit: (value) => this.edit((d) => (d.maxBudgetUsd = value)),
-      }),
-      this.modelsByAction(presets),
+      ...(provider === 'claude'
+        ? [
+            numberField({
+              label: 'Budget par réécriture (USD)',
+              value: draft.claude.maxBudgetUsd,
+              min: 0.01,
+              max: 20,
+              step: 0.05,
+              onCommit: (value) => this.edit((d) => (d.claude.maxBudgetUsd = value)),
+            }),
+          ]
+        : []),
+      this.modelsByAction(provider, presets),
     );
-    return section;
+    return group;
   }
 
   /**
@@ -209,8 +253,12 @@ export class SettingsPage {
    * too. An empty field is not a missing value, it is "follow the default", which the placeholder
    * spells out: proofreading does not need the model that restructuring benefits from.
    */
-  private modelsByAction(presets: readonly RewritePreset[]): HTMLElement {
+  private modelsByAction(
+    provider: RewriteProvider,
+    presets: readonly RewritePreset[],
+  ): HTMLElement {
     const draft = this.require();
+    const settings = draft[provider];
     const group = createElement('div', { className: 'settings-group' });
     group.append(
       createElement('div', { className: 'settings-group__title', text: 'Modèle par action' }),
@@ -224,16 +272,21 @@ export class SettingsPage {
       group.append(
         textField({
           label: preset.label,
-          value: draft.modelByPresetId[preset.id] ?? '',
-          placeholder: draft.model,
+          value: settings.modelByPresetId[preset.id] ?? '',
+          placeholder:
+            settings.model.length > 0
+              ? settings.model
+              : provider === 'codex'
+                ? 'Modèle courant du CLI'
+                : '',
           onCommit: (value) =>
             this.edit((d) => {
               // Deleting rather than storing an empty string keeps "no override" to a single
               // representation, which is what makes the fallback to the default predictable.
               if (value.trim().length > 0) {
-                d.modelByPresetId[preset.id] = value.trim();
+                d[provider].modelByPresetId[preset.id] = value.trim();
               } else {
-                delete d.modelByPresetId[preset.id];
+                delete d[provider].modelByPresetId[preset.id];
               }
             }),
         }),

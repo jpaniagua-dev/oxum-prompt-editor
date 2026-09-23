@@ -8,14 +8,14 @@ import {
   type LibraryId,
   type OpenedFile,
   type RewriteRequest,
+  type RewriteProvider,
   type SnapshotReason,
   type ThemeMode,
   type ThemeState,
 } from '@shared/contracts.js';
 import type { ThemeController } from './theme.js';
 import { mergePresets, resolvePreset } from './claude/presets.js';
-import type { RewriteService } from './claude/rewrite-service.js';
-import { resetClaudePathCache } from './claude/claude-cli.js';
+import type { RewriteService } from './rewrite/rewrite-service.js';
 import type { DraftStore } from './store/draft-store.js';
 import type { FileStore } from './store/file-store.js';
 import type { HistoryStore } from './store/history-store.js';
@@ -202,9 +202,8 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
     async (_event, patch: unknown): Promise<AppSettings> => {
       const previous = deps.settings.get();
       const next = await deps.settings.update(asSettingsPatch(patch));
-      if (next.claudePath !== previous.claudePath) {
-        resetClaudePathCache();
-      }
+      if (next.claude.cliPath !== previous.claude.cliPath) deps.rewrites.resetPathCache('claude');
+      if (next.codex.cliPath !== previous.codex.cliPath) deps.rewrites.resetPathCache('codex');
       deps.onSettingsChanged(next, previous);
       return next;
     },
@@ -221,10 +220,12 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
       requestId: parsed.requestId,
       text: parsed.text,
       preset: resolvePreset(presets, parsed.presetId),
-      // Per-action override when there is one, the global default otherwise.
-      model: resolveModelForPreset(settings, parsed.presetId),
-      maxBudgetUsd: settings.maxBudgetUsd,
-      claudePath: settings.claudePath,
+      provider: settings.rewriteProvider,
+      // Per-action override for the selected provider, then that provider's global default.
+      model: resolveModelForPreset(settings, settings.rewriteProvider, parsed.presetId),
+      maxBudgetUsd:
+        settings.rewriteProvider === 'claude' ? settings.claude.maxBudgetUsd : null,
+      cliPath: settings[settings.rewriteProvider].cliPath,
     });
   });
 
@@ -268,11 +269,10 @@ function asSettingsPatch(value: unknown): Partial<AppSettings> {
   if (typeof input.hideOnBlur === 'boolean') patch.hideOnBlur = input.hideOnBlur;
   if (typeof input.openAtLogin === 'boolean') patch.openAtLogin = input.openAtLogin;
   if (typeof input.fontSize === 'number') patch.fontSize = input.fontSize;
-  if (typeof input.model === 'string') patch.model = input.model;
-  if (isModelMap(input.modelByPresetId)) patch.modelByPresetId = input.modelByPresetId;
-  if (typeof input.claudePath === 'string') patch.claudePath = input.claudePath;
+  if (isRewriteProvider(input.rewriteProvider)) patch.rewriteProvider = input.rewriteProvider;
+  if (isClaudeSettings(input.claude)) patch.claude = input.claude;
+  if (isCliSettings(input.codex)) patch.codex = input.codex;
   if (typeof input.defaultPresetId === 'string') patch.defaultPresetId = input.defaultPresetId;
-  if (typeof input.maxBudgetUsd === 'number') patch.maxBudgetUsd = input.maxBudgetUsd;
   if (typeof input.notesDirectory === 'string') patch.notesDirectory = input.notesDirectory;
   if (typeof input.promptsDirectory === 'string') patch.promptsDirectory = input.promptsDirectory;
 
@@ -287,6 +287,27 @@ function asSettingsPatch(value: unknown): Partial<AppSettings> {
  */
 function isModelMap(value: unknown): value is Record<string, string> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isRewriteProvider(value: unknown): value is RewriteProvider {
+  return value === 'claude' || value === 'codex';
+}
+
+function isCliSettings(value: unknown): value is AppSettings['codex'] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const input = value as Record<string, unknown>;
+  return (
+    typeof input.model === 'string' &&
+    isModelMap(input.modelByPresetId) &&
+    typeof input.cliPath === 'string'
+  );
+}
+
+function isClaudeSettings(value: unknown): value is AppSettings['claude'] {
+  return (
+    isCliSettings(value) &&
+    typeof (value as unknown as { readonly maxBudgetUsd?: unknown }).maxBudgetUsd === 'number'
+  );
 }
 
 function asRewriteRequest(value: unknown): RewriteRequest | null {

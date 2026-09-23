@@ -128,8 +128,10 @@ Four independent mechanisms, because losing a draft is the one failure this app 
 
 ## Rewriting a prompt
 
-The **Rédiger le prompt** button pipes the draft through the Claude CLI, reusing your existing
-session, so there is no API key to configure.
+The **Rédiger le prompt** button pipes the draft through either the Claude or Codex CLI, reusing
+the selected CLI's authenticated session, so there is no API key to configure. Claude remains
+the default after upgrading; the provider is selected globally in Settings and failures are
+reported without silently falling back to the other engine.
 
 The result appears in a side panel, never straight into your buffer. `Appliquer` archives your
 original first and replaces the text in a single transaction, so one `Ctrl+Z` brings your own
@@ -160,14 +162,19 @@ and `vous` stays `vous`. Register is a matter of style, whereas `tu` versus `vou
 the relationship that the draft does not state, and a model asked to be formal will switch a
 French text to `vous` unless it is told not to.
 
-The CLI is invoked with `--tools ""` (no filesystem or network access), `--safe-mode` (ignores
-your `CLAUDE.md`, hooks, MCP servers and skills, so results are fast and reproducible),
-`--no-session-persistence`, and a hard `--max-budget-usd` cap. Cost and duration are shown in
-the status bar after each run.
+Claude is invoked with `--tools ""` (no filesystem or network access), `--safe-mode` (ignores
+your `CLAUDE.md`, hooks, MCP servers and skills), `--no-session-persistence`, and a hard
+`--max-budget-usd` cap. Codex uses the [documented non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)
+with `--ephemeral`,
+`--ignore-user-config`, `--sandbox read-only`, `--skip-git-repo-check` and `--json`, from the
+CLI binary's directory so no project context is supplied. In both cases the preset instructions
+are the prompt and the draft travels on stdin. Duration is shown for both engines; USD cost is
+shown only when the CLI supplies one, which Codex does not.
 
-The model is picked **per action** rather than once for the whole app: proofreading is mechanical
-and does not need what restructuring a prompt benefits from. Every action has its own field in the
-settings, and an empty one falls back to the default model.
+Each provider keeps its own default model and per-action overrides: proofreading is mechanical and
+does not need what restructuring a prompt benefits from. An empty override falls back to that
+provider's default. Codex's default may itself stay empty, which deliberately leaves model choice
+to the current CLI configuration.
 
 ## Prompt library and notes
 
@@ -243,11 +250,15 @@ behaviour, and it left no way back from a mistyped global shortcut.
 | `hideOnBlur` | `false` | Off on purpose: a popup vanishing mid-thought is worse than a stray window |
 | `openAtLogin` | `false` | Starts hidden via `--hidden` |
 | `fontSize` | `15` | 10 to 32 |
-| `model` | `sonnet` | Any alias or full model name |
-| `claudePath` | `""` | Empty means auto-detect: PATH, then `%USERPROFILE%\.local\bin\claude.exe` |
+| `rewriteProvider` | `claude` | Global rewrite engine: `claude` or `codex`; no automatic fallback |
+| `claude.model` | `sonnet` | Claude alias or full model name |
+| `claude.cliPath` | `""` | Empty means auto-detect: PATH, then `%USERPROFILE%\.local\bin\claude.exe` |
+| `claude.maxBudgetUsd` | `0.5` | Per-rewrite Claude budget |
+| `claude.modelByPresetId` | `{}` | Per-action Claude override; empty uses `claude.model` |
+| `codex.model` | `""` | Empty lets Codex use its current model |
+| `codex.cliPath` | `""` | Empty means auto-detect: PATH, then the local Codex app installation |
+| `codex.modelByPresetId` | `{}` | Per-action Codex override; empty uses `codex.model` |
 | `defaultPresetId` | `structure` | |
-| `maxBudgetUsd` | `0.5` | Per rewrite |
-| `modelByPresetId` | `{}` | Per-action override, keyed by preset id. An absent or empty entry uses `model` |
 | `notesDirectory` | `""` | Absolute path. Empty means `%APPDATA%\oxum-prompt-editor\notes`; a relative path is rejected |
 | `promptsDirectory` | `""` | Same, for the prompt library. Empty means `…\oxum-prompt-editor\prompts` |
 | `customPresets` | `[]` | Reusing a built-in `id` overrides it. Each entry takes `id`, `label`, `hint`, `systemPrompt` and an optional `kind` (`agent-prompt`, the default, or `text`) |
@@ -273,7 +284,7 @@ own lighter tints. Same family, weight appropriate to the background.
 
 ```
 src/shared/contracts.ts   Types for every main <-> renderer channel: the single source of truth
-src/main/                 Window, tray, global shortcut, theme, stores, Claude CLI integration
+src/main/                 Window, stores, rewrite coordinator, Claude and Codex CLI adapters
 src/preload/              contextBridge: one narrow typed API, no generic IPC passthrough
 src/renderer/             CodeMirror 6 editor, preview, format bar, side panel, settings, badge
 src/renderer/styles/      tokens.css holds both palettes; app.css only references tokens
@@ -296,8 +307,8 @@ remote content. It reaches the filesystem only through the channels declared in 
 ```bash
 npm test         # Vitest: atomic writes, autosave, history pruning and purging, document naming,
                  # library isolation and the absence of pruning, stream parsing, settings,
-                 # per-action model resolution, preset families, token estimation, and every
-                 # formatting command against a headless EditorState
+                 # provider/model resolution, both CLI parsers, coordination, token estimation,
+                 # and every formatting command against a headless EditorState
 npm run lint
 npm run typecheck
 ```

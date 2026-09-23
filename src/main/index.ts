@@ -7,8 +7,8 @@ import {
 } from 'electron';
 import { join } from 'node:path';
 import { IpcChannel, type AppSettings, type RewriteEvent } from '@shared/contracts.js';
-import { RewriteService } from './claude/rewrite-service.js';
 import { registerIpcHandlers } from './ipc.js';
+import { RewriteService } from './rewrite/rewrite-service.js';
 import { registerGlobalShortcut, shortcutLabel, unregisterGlobalShortcuts } from './shortcuts.js';
 import { DraftStore } from './store/draft-store.js';
 import { FileStore } from './store/file-store.js';
