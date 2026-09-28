@@ -18,7 +18,7 @@ export type AppCommandId =
   | 'copyOnly'
   | 'rewriteDefault'
   | 'rewritePick'
-  | 'newPrompt'
+  | 'newDraft'
   | 'toggleLibrary'
   | 'showNotes'
   | 'showHistory'
@@ -49,9 +49,9 @@ export interface Shortcut<T> {
 export const APP_SHORTCUTS: readonly Shortcut<AppCommandId>[] = [
   { key: 'Mod-Enter', label: 'Copier tout et masquer la fenêtre', command: 'copyAndHide' },
   { key: 'Mod-Shift-Enter', label: 'Copier sans masquer', command: 'copyOnly' },
-  { key: 'Mod-r', label: 'Réécrire avec le mode sélectionné', command: 'rewriteDefault' },
-  { key: 'Mod-Shift-r', label: 'Choisir le mode de réécriture', command: 'rewritePick' },
-  { key: 'Mod-n', label: 'Nouveau prompt (l’actuel est archivé)', command: 'newPrompt' },
+  { key: 'Mod-r', label: 'Lancer l’action affichée sur le bouton', command: 'rewriteDefault' },
+  { key: 'Mod-Shift-r', label: 'Choisir une action et la lancer', command: 'rewritePick' },
+  { key: 'Mod-n', label: 'Nouveau brouillon (l’actuel est archivé)', command: 'newDraft' },
   // `Mod-l` opens the panel itself; the other two land straight on a tab, so the direct access
   // the three separate toolbar buttons used to give is not lost with them.
   { key: 'Mod-l', label: 'Bibliothèque, sur le dernier onglet ouvert', command: 'toggleLibrary' },
@@ -178,6 +178,12 @@ export function acceleratorLabel(accelerator: string): string {
 /** Display label of a formatting shortcut, for the toolbar tooltips. */
 export function formatShortcutLabel(command: MarkdownCommandId): string {
   const shortcut = FORMAT_SHORTCUTS.find((entry) => entry.command === command);
+  return shortcut === undefined ? '' : shortcutLabel(shortcut.key);
+}
+
+/** Display label of an app shortcut, for the tooltips of the controls that run the same command. */
+export function appShortcutLabel(command: AppCommandId): string {
+  const shortcut = APP_SHORTCUTS.find((entry) => entry.command === command);
   return shortcut === undefined ? '' : shortcutLabel(shortcut.key);
 }
 

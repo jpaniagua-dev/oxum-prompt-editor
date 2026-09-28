@@ -1,9 +1,11 @@
 # Oxum Prompt Editor
 
-A popup Markdown editor for writing prompts you can never lose, then pasting them into a
-terminal agent such as Claude Code.
+A popup Markdown editor for quick text work you can never lose: proofread an email, translate a
+message, change its register, or shape a prompt for a terminal agent such as Claude Code, then
+paste the result wherever it goes.
 
-It exists to fix two specific annoyances of writing prompts directly in a terminal:
+It started as a prompt editor, and still fixes the two annoyances of writing prompts directly in
+a terminal:
 
 - **A stray `Ctrl+C` wipes what you were typing.** Here nothing can destroy the buffer.
   Every keystroke is autosaved atomically, closing only hides the window, and clearing or
@@ -57,9 +59,9 @@ cannot fall out of date with the app the way this section can.
 | `Enter` | New line (continues lists and quotes) |
 | `Ctrl+Enter` | Copy the whole document and hide the window |
 | `Ctrl+Shift+Enter` | Copy without hiding |
-| `Ctrl+R` | Rewrite with the selected preset |
-| `Ctrl+Shift+R` | Open the preset picker |
-| `Ctrl+N` | New prompt (the current one is archived first) |
+| `Ctrl+R` | Run the action shown on the button |
+| `Ctrl+Shift+R` | Open the action menu; picking an entry runs it |
+| `Ctrl+N` | New draft (the current one is archived first) |
 | `Ctrl+O` | Open a `.md` file from disk, read-only (the current draft is archived first) |
 | `Ctrl+P` | Preview: render the Markdown in place of the editor |
 | `Ctrl+H` | History panel |
@@ -72,9 +74,10 @@ cannot fall out of date with the app the way this section can.
 | `Ctrl+F` | Search within the draft |
 | `Esc` | Close the open panel, or hide the window |
 
-`−` hides the window; `✕` quits. Both the `✕` and **Quitter** in the tray menu go through the same
-path: flush the draft, take a final snapshot, save the window bounds, then exit. Nothing is lost,
-which is why quitting needs no confirmation.
+`✕` hides the window, like `Esc`: it is where the cursor goes to dismiss a popup, and a real quit
+there killed the tray daemon on a misclick. Quitting lives in the tray menu and at the foot of the
+settings page, and both go through the same path: flush the draft, take a final snapshot, save the
+window bounds, then exit. Nothing is lost, which is why quitting needs no confirmation.
 
 The running version is shown at the right of the status bar. That is not decoration: every
 packaged build shares one `userData`, so the single-instance lock means **launching a new build
@@ -126,12 +129,17 @@ Four independent mechanisms, because losing a draft is the one failure this app 
 
 `Esc` and the close button only hide the window.
 
-## Rewriting a prompt
+## Rewriting
 
-The **Rédiger le prompt** button pipes the draft through either the Claude or Codex CLI, reusing
+The action button pipes the draft through either the Claude or Codex CLI, reusing
 the selected CLI's authenticated session, so there is no API key to configure. Claude remains
 the default after upgrading; the provider is selected globally in Settings and failures are
 reported without silently falling back to the other engine.
+
+The button is a split button, and it is labelled with the action it runs (`Corriger`,
+`Traduire (EN)`…) rather than with a fixed verb. Its arrow, or `Ctrl+Shift+R`, opens the list of
+actions with a one-line hint each; picking one runs it at once and makes it the button's action,
+which is remembered across restarts.
 
 The result appears in a side panel, never straight into your buffer. `Appliquer` archives your
 original first and replaces the text in a single transaction, so one `Ctrl+Z` brings your own
@@ -147,15 +155,23 @@ Merely *dropping* that instruction is not enough, though: left to itself the mod
 "Note: the following points remain unclear", so the prompts now forbid the section explicitly. A
 gap in the input stays a gap in the output, unremarked.
 
-Presets come in two families, shown as two groups in the picker. They differ in the shape of the
+Presets come in two families, shown as two groups in the menu. They differ in the shape of the
 output, not in what they may add:
 
-- **Prompt**: Markdown for a coding agent, built around headings, bullets and code fences.
-  Built-ins: **Structurer**, **Traduire (EN)**, **Condenser**, **Ticket**.
 - **Texte**: read by a human, where Markdown markers would show up as literal characters.
   Built-ins: **Corriger** (spelling, grammar and typography, and strictly nothing else),
-  **Formel** (raises the register) and **Chat** (a short, deliberately informal message for a team
-  chat client). For these, `Copier` is the primary action rather than `Appliquer`.
+  **Formel** (raises the register), **Chat** (a short, deliberately informal message for a team
+  chat client) and **Traduire** into English, French or German. For these, `Copier` is the
+  primary action rather than `Appliquer`.
+- **Prompt**: Markdown for a coding agent, built around headings, bullets and code fences.
+  Built-ins: **Structurer**, **Condenser**, **Ticket**. The token estimate in the corner of the
+  editor only shows while one of these is selected: it is a prompt budget, and next to an email it
+  is a number with no decision attached.
+
+Translation keeps the formatting exactly as it is, so a Markdown prompt stays Markdown and a plain
+message stays plain. It used to belong to the Prompt family, whose "use headings and bullets" rule
+came back as a restructured email. It keeps the register and, where the target language has one,
+the form of address (`tu` becomes `du`, `vous` becomes `Sie`).
 
 **Formel** and **Chat** change the register but never how the reader is addressed: `tu` stays `tu`
 and `vous` stays `vous`. Register is a matter of style, whereas `tu` versus `vous` is a fact about

@@ -47,7 +47,7 @@ describe('shortcut catalogue', () => {
       'copyOnly',
       'rewriteDefault',
       'rewritePick',
-      'newPrompt',
+      'newDraft',
       'toggleLibrary',
       'showNotes',
       'showHistory',

@@ -28,6 +28,7 @@ import { formatTimestamp } from './ui/format.js';
 import { mountFormatBar } from './ui/format-bar.js';
 import { HelpPage } from './ui/help-page.js';
 import { confirmButton, renderLibraryEmpty, renderLibraryList } from './ui/library-panel.js';
+import { PresetMenu } from './ui/preset-menu.js';
 import { PreviewPane } from './ui/preview-pane.js';
 import { SettingsPage } from './ui/settings-page.js';
 import { SidePanel, type PanelMode } from './ui/side-panel.js';
@@ -48,6 +49,14 @@ class App {
 
   private readonly preview = new PreviewPane({
     onLinkActivate: (url) => void this.openLink(url),
+  });
+
+  private readonly presetMenu = new PresetMenu({
+    onRun: (presetId) => void this.startRewrite(presetId),
+    onSelect: (presetId) => {
+      void window.api.updateSettings({ defaultPresetId: presetId });
+      this.refreshTokenBadge();
+    },
   });
 
   private readonly helpPage = new HelpPage({
@@ -110,8 +119,8 @@ class App {
         copyAndHide: () => void this.copy({ hide: true }),
         copyOnly: () => void this.copy({ hide: false }),
         rewriteDefault: () => void this.startRewrite(this.currentPresetId()),
-        rewritePick: () => this.focusPresetSelect(),
-        newPrompt: () => void this.newPrompt(),
+        rewritePick: () => this.presetMenu.open(),
+        newDraft: () => void this.newDraft(),
         toggleLibrary: () => void this.toggleLibraryPanel(),
         showNotes: () => void this.showLibraryTab('notes'),
         showHistory: () => void this.showLibraryTab('history'),
@@ -125,11 +134,11 @@ class App {
       },
     });
 
+    this.presetMenu.render(this.presets, bootstrap.settings.defaultPresetId);
     this.statusBar.updateCounts(initialText);
-    this.tokenBadge.update(initialText);
+    this.refreshTokenBadge();
     this.statusBar.markSaved();
     this.bindChrome();
-    this.renderPresets();
     this.subscribeToRewrites();
 
     mountFormatBar(requireElement<HTMLDivElement>('format-bar'), () => this.editor);
@@ -693,7 +702,7 @@ class App {
       /* Quota exceeded on an enormous draft: the disk autosave still covers us. */
     }
     this.statusBar.updateCounts(text);
-    this.tokenBadge.update(text);
+    this.refreshTokenBadge(text);
     this.statusBar.markPending();
     // The main process debounce is 300ms; report saved slightly after it fires.
     window.setTimeout(() => this.statusBar.markSaved(), 400);
@@ -729,7 +738,7 @@ class App {
     }
   }
 
-  private async newPrompt(): Promise<void> {
+  private async newDraft(): Promise<void> {
     if (this.editor === null) {
       return;
     }
@@ -740,13 +749,18 @@ class App {
       await window.api.snapshotDraft(text, 'new');
     }
     this.replaceDocument(this.editor, '');
-    // A new prompt did not come from the file that was open, so the chip must stop naming it.
+    // A new draft did not come from the file that was open, so the chip must stop naming it.
     this.bindFile(null);
     this.editor.focus();
-    this.statusBar.setMessage('nouveau prompt (l’ancien est dans l’historique)');
+    this.statusBar.setMessage('nouveau brouillon (l’ancien est dans l’historique)');
   }
 
   private handleEscape(): void {
+    // The menu floats above everything else, so it is the first thing Escape takes away.
+    if (this.presetMenu.isOpen) {
+      this.presetMenu.close({ restoreFocus: true });
+      return;
+    }
     // Settings first: they cover the panel, so closing what is underneath would look like
     // nothing happened.
     if (this.settingsPage.isOpen) {
@@ -775,48 +789,19 @@ class App {
   /* ---------------------------------------------------------------- rewrite */
 
   private currentPresetId(): string {
-    return requireElement<HTMLSelectElement>('preset-select').value;
-  }
-
-  private focusPresetSelect(): void {
-    const select = requireElement<HTMLSelectElement>('preset-select');
-    select.focus();
-    select.click();
+    return this.presetMenu.selected?.id ?? '';
   }
 
   /**
-   * Fills the picker, one `<optgroup>` per preset family.
+   * Shows the token estimate only while the selected action writes a prompt.
    *
-   * The two families answer different questions ("reshape my prompt" versus "give me a text to
-   * send"), and a flat list of six entries hid that. A group with no member is skipped rather
-   * than rendered empty, so a configuration that drops a whole family leaves no dangling header.
+   * A token count is a prompt budget. Next to an email being corrected or a message being
+   * translated it is a number with no decision attached, so the action in the split button,
+   * which says what the draft is being prepared for, decides whether it is shown.
    */
-  private renderPresets(): void {
-    const select = requireElement<HTMLSelectElement>('preset-select');
-    select.replaceChildren();
-
-    for (const [kind, groupLabel] of PRESET_GROUPS) {
-      const members = this.presets.filter((preset) => preset.kind === kind);
-      if (members.length === 0) {
-        continue;
-      }
-      const group = document.createElement('optgroup');
-      group.label = groupLabel;
-      for (const preset of members) {
-        const option = createElement('option', { text: preset.label, title: preset.hint });
-        option.value = preset.id;
-        group.append(option);
-      }
-      select.append(group);
-    }
-
-    const preferred = this.settings?.defaultPresetId ?? '';
-    if (this.presets.some((preset) => preset.id === preferred)) {
-      select.value = preferred;
-    }
-    select.addEventListener('change', () => {
-      void window.api.updateSettings({ defaultPresetId: select.value });
-    });
+  private refreshTokenBadge(text: string = this.editor === null ? '' : getText(this.editor)): void {
+    const writesPrompt = this.presetMenu.selected?.kind === 'agent-prompt';
+    this.tokenBadge.update(writesPrompt ? text : '');
   }
 
   private async startRewrite(presetId: string): Promise<void> {
@@ -841,12 +826,12 @@ class App {
     this.activeRewriteKind = preset?.kind ?? 'agent-prompt';
     this.activeRewriteProvider = this.settings?.rewriteProvider ?? 'claude';
     const provider = providerLabel(this.activeRewriteProvider);
-    this.panel.open('rewrite', `Réécriture · ${provider} · ${preset?.label ?? presetId}`, () => {
+    this.panel.open('rewrite', `${preset?.label ?? presetId} · ${provider}`, () => {
       if (this.activeRewriteId !== null) {
         void window.api.cancelRewrite(this.activeRewriteId);
       }
     });
-    this.panel.setPending(`${provider} rédige…`);
+    this.panel.setPending(`${provider} travaille…`);
     this.panel.setStreaming(true);
     this.panel.setActions([
       { label: 'Annuler', onClick: () => void window.api.cancelRewrite(requestId) },
@@ -957,9 +942,7 @@ class App {
   }
 
   private setRewriteButtonBusy(busy: boolean): void {
-    const button = requireElement<HTMLButtonElement>('rewrite-button');
-    button.disabled = busy;
-    button.textContent = busy ? 'Réécriture…' : 'Rédiger le prompt';
+    this.presetMenu.setBusy(busy);
   }
 
   /* ---------------------------------------------------------------- history */
@@ -973,7 +956,7 @@ class App {
       this.panel.setContent(
         createElement('div', {
           className: 'history-empty',
-          text: 'Aucun instantané pour le moment. Une copie, un nouveau prompt ou une réécriture en crée un.',
+          text: 'Aucun instantané pour le moment. Une copie, un nouveau brouillon ou une réécriture en crée un.',
         }),
       );
       return;
@@ -1072,7 +1055,7 @@ class App {
       void this.openFile();
     });
     requireElement<HTMLButtonElement>('new-button').addEventListener('click', () => {
-      void this.newPrompt();
+      void this.newDraft();
     });
     requireElement<HTMLButtonElement>('preview-button').addEventListener('click', () => {
       this.togglePreview();
@@ -1091,9 +1074,6 @@ class App {
       // the bounds before exiting. Nothing is lost, so no confirmation is warranted. It lives in
       // the settings page, not the titlebar: there it was one 26px target away from the hide.
       window.api.quitApp();
-    });
-    requireElement<HTMLButtonElement>('rewrite-button').addEventListener('click', () => {
-      void this.startRewrite(this.currentPresetId());
     });
     requireElement<HTMLButtonElement>('theme-button').addEventListener('click', () => {
       void this.cycleTheme();
@@ -1144,12 +1124,6 @@ const TAB_LABELS: Readonly<Record<LibraryTab, string>> = {
 function isLibraryTab(mode: PanelMode): mode is LibraryTab {
   return mode === 'prompts' || mode === 'notes' || mode === 'history';
 }
-
-/** Picker groups, in display order. The label says what the preset *produces*. */
-const PRESET_GROUPS: readonly (readonly [PresetKind, string])[] = [
-  ['agent-prompt', 'Prompt'],
-  ['text', 'Texte'],
-];
 
 /**
  * Sun for light, moon for dark, half-filled disc for "follow the system".

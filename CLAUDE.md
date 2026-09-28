@@ -1,17 +1,20 @@
 # oxum-prompt-editor — instructions projet
 
-Éditeur de prompts Markdown en popup Windows (Electron + TypeScript strict + CodeMirror 6).
+Éditeur Markdown en popup Windows (Electron + TypeScript strict + CodeMirror 6), né pour écrire
+des prompts et devenu un outil d'édition rapide : corriger, traduire, changer de registre, puis
+coller le résultat ailleurs. Le vocabulaire de l'UI suit cet usage (« brouillon », pas « prompt »),
+sauf là où il s'agit vraiment d'un prompt (famille `agent-prompt`, bibliothèque de prompts).
 
 ## Invariant central : le texte de l'utilisateur ne se perd jamais
 
 C'est la raison d'être de l'app, pas une qualité parmi d'autres. Toute modification doit
 préserver ces propriétés :
 
-- **Aucun geste de l'UI ne détruit le buffer.** `Esc` et le bouton `−` masquent la fenêtre.
-  Quitter se fait par le menu du tray **ou par le bouton `✕` de la barre de titre**, et les deux
-  passent par la même fonction `quit()` : flush du brouillon, instantané final, sauvegarde des
-  bounds, puis sortie. ⚠️ Ne jamais câbler une fermeture sur `window.close()` côté renderer, elle
-  sauterait les trois.
+- **Aucun geste de l'UI ne détruit le buffer.** `Esc` et le bouton `✕` de la barre de titre
+  masquent la fenêtre. Quitter se fait par le menu du tray **ou par le bouton en pied de la page de
+  réglages**, et les deux passent par la même fonction `quit()` : flush du brouillon, instantané
+  final, sauvegarde des bounds, puis sortie. ⚠️ Ne jamais câbler une fermeture sur
+  `window.close()` côté renderer, elle sauterait les trois.
 - **Toute écriture de fichier passe par `atomicWriteFile`** (`src/main/store/atomic-write.ts`) :
   temp + rename, jamais `writeFile` direct sur un fichier de données. Un `writeFile` tronque
   avant d'écrire, donc un crash au mauvais moment détruit le brouillon.
@@ -94,7 +97,13 @@ pratique.
   `REGISTER_RULES` portent donc une **interdiction explicite**, et un test la vérifie sur les deux
   familles. Le champ `kind` de `RewritePreset` ne distingue plus que la forme : `agent-prompt`
   produit du Markdown structuré pour un agent de code, `text` produit un texte lu tel quel par un
-  humain (`Corriger`, `Formel`, `Chat`).
+  humain (`Corriger`, `Formel`, `Chat`, `Traduire`).
+- **La traduction est `text`, jamais `agent-prompt`.** Elle portait `AGENT_PROMPT_RULES`, dont le
+  « use headings, bullets » restructurait un mail traduit. Les trois presets (`translate-en`,
+  `translate-fr`, `translate-de`) sortent de `translationPreset()` et gardent la mise en forme telle
+  quelle, le registre et la forme d'adresse. `translate-en` garde son id d'origine pour qu'un
+  `defaultPresetId` ou un modèle par action déjà enregistré s'applique encore. Un test vérifie que
+  chacun est `text` et ne contient pas la consigne de structure.
 - **`Formel` et `Chat` changent le registre, jamais l'adresse au lecteur** (`REGISTER_RULES`). Le
   registre est une affaire de style ; le tu/vous est un fait relationnel que le brouillon ne dit
   pas. Sans interdiction, un modèle à qui on demande du soutenu bascule un texte français en
@@ -133,6 +142,15 @@ pratique.
   le panneau d'aide serait un document, et un document dérive : ici un binding ajouté sans libellé
   ne compile pas, et un test refuse une touche en double, un libellé vide ou un chiffre combiné à
   `Shift`. Ne pas réintroduire de touche câblée en dur ailleurs.
+- **Le bouton de réécriture est un split button** (`src/renderer/ui/preset-menu.ts`), pas un
+  bouton à côté d'un `<select>`. Il porte le libellé de l'action qu'il lance, et **choisir une
+  entrée du menu la lance aussitôt** en plus de la sélectionner. Un `<select>` natif ne peut pas le
+  faire : il ne signale qu'un changement, donc rechoisir l'entrée déjà sélectionnée ne déclenche
+  rien. Le menu marque son `Escape` comme traité (`preventDefault`), sinon le `keydown` de la
+  fenêtre fermerait un panneau ou masquerait la fenêtre en même temps.
+- **Le badge de tokens ne s'affiche que si l'action sélectionnée est `agent-prompt`**
+  (`refreshTokenBadge`). C'est un budget de prompt ; à côté d'un mail, c'est un chiffre sans
+  décision attachée.
 - **Le panneau d'aide (`F1`) et la page de réglages sont exclusifs**, et l'exclusion est
   asymétrique : ouvrir les réglages ferme l'aide, l'inverse est interdit. Les réglages tiennent une
   copie de travail non enregistrée, l'aide ne tient rien. C'est pourquoi `F1` est neutralisé tant

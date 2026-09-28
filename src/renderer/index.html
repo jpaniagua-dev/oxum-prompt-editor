@@ -18,7 +18,7 @@
       <header class="titlebar" id="titlebar">
         <span class="titlebar__title">
           <span class="titlebar__mark" aria-hidden="true"></span>
-          Prompt
+          Brouillon
         </span>
         <div class="titlebar__actions">
           <!--
@@ -134,7 +134,7 @@
 
       <div class="workspace">
         <main class="editor-pane">
-          <div id="editor" class="editor" aria-label="Éditeur de prompt"></div>
+          <div id="editor" class="editor" aria-label="Éditeur"></div>
           <!--
             The rendered document, shown in place of the editor rather than beside it. The window
             is often under 700px wide, and two columns at that width leaves two unreadable ones.
@@ -246,15 +246,32 @@
 
       <footer class="toolbar">
         <div class="toolbar__group">
-          <button type="button" id="rewrite-button" class="button button--accent">
-            Rédiger le prompt
-          </button>
-          <select
-            id="preset-select"
-            class="select"
-            title="Mode de réécriture (Ctrl+Maj+R)"
-            aria-label="Mode de réécriture"
-          ></select>
+          <!--
+            A split button: the left half runs the selected action and is labelled with it, the
+            right half opens the list of actions. The menu opens upwards, since the toolbar sits
+            at the bottom of the window. Labels and titles are filled in by PresetMenu.
+          -->
+          <div class="split-button" id="rewrite-split">
+            <button
+              type="button"
+              id="rewrite-button"
+              class="button button--accent split-button__main"
+            ></button>
+            <button
+              type="button"
+              id="preset-menu-button"
+              class="button button--accent split-button__toggle"
+              aria-label="Choisir une action"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="preset-menu"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3.5 10.2 8 5.7l4.5 4.5-1 1L8 7.7l-3.5 3.5z" />
+              </svg>
+            </button>
+            <div class="preset-menu" id="preset-menu" role="menu" aria-label="Actions" hidden></div>
+          </div>
         </div>
         <div class="toolbar__group">
           <!--
@@ -280,7 +297,7 @@
           >
             Ouvrir
           </button>
-          <button type="button" id="new-button" class="button" title="Nouveau prompt (Ctrl+N)">
+          <button type="button" id="new-button" class="button" title="Nouveau brouillon (Ctrl+N)">
             Nouveau
           </button>
           <!--

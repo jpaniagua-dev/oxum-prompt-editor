@@ -20,7 +20,7 @@ export interface EditorCallbacks {
   onChange: (text: string) => void;
 }
 
-const PLACEHOLDER_TEXT = `Écris ton prompt ici. Entrée = retour à la ligne.
+const PLACEHOLDER_TEXT = `Écris ou colle ton texte ici. Entrée = retour à la ligne.
 Ctrl+Entrée copie tout et masque la fenêtre.`;
 
 /** Holds the per-theme extension so it can be swapped without rebuilding the editor. */
