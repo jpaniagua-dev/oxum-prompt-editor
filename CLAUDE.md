@@ -229,16 +229,17 @@ npm test           # Vitest sur les unités pures
 npm run lint       # ESLint, zéro warning toléré
 npm run typecheck  # tsc sur les projets node et web
 npm run dist       # installeur NSIS per-user + portable dans release/
-npm run dist:zip   # le zip publié par la release, dans release/
+npm run dist:release  # l'installeur et le zip publiés par la release, dans release/
 ```
 
 ## Release
 
 Pousser un tag `v*` déclenche `.github/workflows/release.yml` : les portes (lint, tests,
-typecheck), le build du zip, puis la publication. C'est le **seul** workflow, donc la seule porte :
-une casse ne se voit qu'au moment du tag, et un échec impose de déplacer le tag plutôt que de
-relancer le job, Actions résolvant le workflow depuis la référence poussée. Trois règles que le
-workflow impose et qu'une modification ne doit pas casser en silence :
+typecheck), le build de l'installeur et du zip, puis la publication. C'est le **seul** workflow,
+donc la seule porte : une casse ne se voit qu'au moment du tag, et un échec impose de déplacer le
+tag plutôt que de relancer le job, Actions résolvant le workflow depuis la référence poussée.
+Quatre règles que le workflow et la config imposent et qu'une modification ne doit pas casser en
+silence :
 
 - **Le tag doit égaler la version de `package.json`**, sinon le job échoue tôt et volontairement.
   La barre de statut est le seul moyen de savoir quel build tourne, donc un tag qui mentirait sur
@@ -246,12 +247,18 @@ workflow impose et qu'une modification ne doit pas casser en silence :
 - **Une seule release vit.** Les anciennes sont supprimées après publication de la nouvelle, dans
   cet ordre, pour qu'un échec ne laisse jamais zéro release. Les **tags sont conservés** : c'est le
   seul lien entre une version et son commit.
-- **Le nom de l'asset est stable** (`oxum-prompt-editor-win-x64.zip`), imposé par
-  `-c.win.artifactName` dans `dist:zip` et non par `electron-builder.yml` : le schéma
-  d'electron-builder 26 refuse une clé `zip` de premier niveau, et `TargetConfiguration` n'accepte
-  pas d'`artifactName` par cible. Y remettre `${version}` casserait l'URL permanente
-  `releases/latest/download/oxum-prompt-editor-win-x64.zip`, qui est tout l'intérêt de n'avoir
-  qu'une release.
+- **Le nom des deux assets est stable** (`oxum-prompt-editor-setup-win-x64.exe` et
+  `oxum-prompt-editor-win-x64.zip`), imposé par `-c.nsis.artifactName` et `-c.win.artifactName`
+  dans `dist:release` et non par `electron-builder.yml` : le schéma d'electron-builder 26 refuse une
+  clé `zip` de premier niveau, et `TargetConfiguration` n'accepte pas d'`artifactName` par cible.
+  L'installeur, lui, a une clé `nsis`, mais le garder en ligne de commande à côté du zip met les
+  deux noms publiés au même endroit, et `npm run dist` garde ses noms versionnés pour un build
+  local. Y remettre `${version}` casserait les URL permanentes `releases/latest/download/…`, qui
+  sont tout l'intérêt de n'avoir qu'une release.
+- **La désinstallation ne touche jamais à `userData`** (`deleteAppDataOnUninstall: false`, écrit
+  en toutes lettres bien que ce soit le défaut). C'est là que vivent le brouillon, l'historique et
+  les dossiers par défaut des notes et des prompts : l'activer ferait de « désinstaller » la perte
+  de données que l'app existe pour empêcher.
 
 ⚠️ `test/library-store.test.ts` porte un `timeout` explicite de 30 s sur « never prunes ». Ce
 n'est pas une verrue : le test écrit 300 documents et chaque `save()` reliste le dossier pour

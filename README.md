@@ -19,19 +19,31 @@ a terminal:
 
 ## Install
 
-Download [oxum-prompt-editor-win-x64.zip](https://github.com/jpaniagua-dev/oxum-prompt-editor/releases/latest/download/oxum-prompt-editor-win-x64.zip),
-extract it anywhere, run `Oxum Prompt Editor.exe`. One release lives at a time, so that link
-always points at the newest build and there is no older one to pick from by mistake.
+Two builds of the same app, from the same release. One release lives at a time, so both links
+always point at the newest build and there is no older one to pick from by mistake.
 
-Two things about a downloaded build, both of which bite otherwise:
+- **Installer** (recommended): [oxum-prompt-editor-setup-win-x64.exe](https://github.com/jpaniagua-dev/oxum-prompt-editor/releases/latest/download/oxum-prompt-editor-setup-win-x64.exe).
+  A per-user install, so no administrator rights, with Start menu and desktop shortcuts and an
+  entry in Windows' installed apps. Running a newer installer upgrades in place. It is also the
+  build to use with **Launch at sign-in**: Windows records the absolute path of the executable, so
+  a portable folder that is later moved or replaced breaks it, while an installed path stays put.
+- **Portable**: [oxum-prompt-editor-win-x64.zip](https://github.com/jpaniagua-dev/oxum-prompt-editor/releases/latest/download/oxum-prompt-editor-win-x64.zip).
+  Extract it anywhere and run `Oxum Prompt Editor.exe`.
+
+Uninstalling removes the program and never your text: the draft, the history, the settings and
+the default notes and prompts folders live in `%APPDATA%\oxum-prompt-editor`, which the uninstaller
+leaves alone.
+
+Things about a downloaded build, which bite otherwise:
 
 - The app is **not code signed**, and Windows marks anything downloaded, so SmartScreen shows
-  "Windows protected your PC" on first launch. Right-click the **zip**, Properties, **Unblock**,
-  then extract: doing it on the archive saves unblocking every extracted file.
-- Every packaged build shares one `userData`, so also one single-instance lock. **Quit the running
-  app from the tray before replacing the folder**, otherwise its files are locked, and worse,
-  launching the new build silently surfaces the old window. For the same reason, uninstall the
-  NSIS-installed copy if you have one.
+  "Windows protected your PC" on first launch. For the installer, **More info** then **Run
+  anyway**. For the zip, right-click it, Properties, **Unblock**, then extract: doing it on the
+  archive saves unblocking every extracted file.
+- Every packaged build, installed or portable, shares one `userData`, so also one single-instance
+  lock. **Quit the running app from the tray before upgrading**, otherwise its files are locked,
+  and worse, launching the new build silently surfaces the old window. For the same reason, keep
+  only one of the two builds around.
 
 Releases are built by GitHub Actions from a `v*` tag, which must match the version in
 `package.json`. Publishing a new one deletes the previous release.
@@ -42,7 +54,7 @@ From source:
 npm install
 npm run dev          # run from source
 npm run dist         # NSIS installer + portable exe in release/
-npm run dist:zip     # the zip the release workflow publishes
+npm run dist:release # the installer and the zip the release workflow publishes
 ```
 
 Requires Node 22+ and Windows. The installer is per-user, so it needs no administrator rights.

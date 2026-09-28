@@ -25,6 +25,10 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Oxum Prompt Editor
+  # Already the default, written out because it is the one setting here that could destroy
+  # data: userData holds the draft, the history and the default notes and prompts folders.
+  # Uninstalling removes the program, never what was typed in it.
+  deleteAppDataOnUninstall: false
 
 win:
   icon: resources/icon.png
