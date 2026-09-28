@@ -58,6 +58,8 @@ const REGISTER_RULES = `Never change how the reader is addressed: keep "tu" as "
 function translationPreset(target: {
   readonly id: 'translate-en' | 'translate-fr' | 'translate-de';
   readonly code: string;
+  /** Letter in the action menu. Not the first letter of the label, which all three share. */
+  readonly accessKey: string;
   /** Name of the language as the model reads it. */
   readonly language: string;
   /** The same name as the user reads it, in the hint. */
@@ -65,9 +67,10 @@ function translationPreset(target: {
   /** Extra typographic rule for the target, empty or ending with a space. */
   readonly typography: string;
 }): RewritePreset {
-  const { id, code, language, displayName, typography } = target;
+  const { id, code, accessKey, language, displayName, typography } = target;
   return {
     id,
+    accessKey,
     label: `Traduire (${code})`,
     hint: `Vers l’${displayName}, mise en forme inchangée`,
     kind: 'text',
@@ -90,6 +93,7 @@ Never add or remove a greeting or a sign-off. Never append a section of any kind
 export const BUILT_IN_PRESETS: readonly RewritePreset[] = [
   {
     id: 'structure',
+    accessKey: 's',
     label: 'Structurer',
     hint: 'Contexte / Objectif / Contraintes, sans rien ajouter',
     kind: 'agent-prompt',
@@ -105,6 +109,7 @@ grammar. Keep it dense: no filler, no restating the obvious.`,
   },
   {
     id: 'condense',
+    accessKey: 'n',
     label: 'Condenser',
     hint: 'Même intention, moins de tokens',
     kind: 'agent-prompt',
@@ -119,6 +124,7 @@ bullets over prose. Losing a requirement is a failure; losing a polite phrase is
   },
   {
     id: 'spec',
+    accessKey: 't',
     label: 'Ticket',
     hint: 'Titre + description + critères d’acceptation',
     kind: 'agent-prompt',
@@ -135,6 +141,7 @@ why.`,
   },
   {
     id: 'fix',
+    accessKey: 'c',
     label: 'Corriger',
     hint: 'Orthographe, grammaire, typographie. Rien d’autre ne bouge.',
     kind: 'text',
@@ -153,6 +160,7 @@ needs correcting, return the input unchanged. Never append a section of any kind
   },
   {
     id: 'formal',
+    accessKey: 'f',
     label: 'Formel',
     hint: 'Registre soutenu, sans raideur',
     kind: 'text',
@@ -168,6 +176,7 @@ ${REGISTER_RULES}`,
   },
   {
     id: 'chat',
+    accessKey: 'h',
     label: 'Chat',
     hint: 'Message court et décontracté pour un chat d’équipe',
     kind: 'text',
@@ -192,6 +201,7 @@ ${REGISTER_RULES}`,
   // per-action model already saved against it still applies.
   translationPreset({
     id: 'translate-en',
+    accessKey: 'e',
     code: 'EN',
     language: 'English',
     displayName: 'anglais',
@@ -199,6 +209,7 @@ ${REGISTER_RULES}`,
   }),
   translationPreset({
     id: 'translate-fr',
+    accessKey: 'r',
     code: 'FR',
     language: 'French',
     displayName: 'français',
@@ -207,6 +218,7 @@ ${REGISTER_RULES}`,
   }),
   translationPreset({
     id: 'translate-de',
+    accessKey: 'd',
     code: 'DE',
     language: 'German',
     displayName: 'allemand',

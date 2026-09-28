@@ -50,7 +50,11 @@ export const APP_SHORTCUTS: readonly Shortcut<AppCommandId>[] = [
   { key: 'Mod-Enter', label: 'Copier tout et masquer la fenêtre', command: 'copyAndHide' },
   { key: 'Mod-Shift-Enter', label: 'Copier sans masquer', command: 'copyOnly' },
   { key: 'Mod-r', label: 'Lancer l’action affichée sur le bouton', command: 'rewriteDefault' },
-  { key: 'Mod-Shift-r', label: 'Choisir une action et la lancer', command: 'rewritePick' },
+  {
+    key: 'Mod-Shift-r',
+    label: 'Menu des actions : la lettre d’une action la lance',
+    command: 'rewritePick',
+  },
   { key: 'Mod-n', label: 'Nouveau brouillon (l’actuel est archivé)', command: 'newDraft' },
   // `Mod-l` opens the panel itself; the other two land straight on a tab, so the direct access
   // the three separate toolbar buttons used to give is not lost with them.

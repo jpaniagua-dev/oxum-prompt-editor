@@ -1,5 +1,6 @@
 import type { PresetKind, RewritePreset } from '@shared/contracts.js';
 import { appShortcutLabel } from '../editor/shortcuts.js';
+import { assignAccessKeys } from './access-keys.js';
 import { clearChildren, createElement, requireElement } from './dom.js';
 
 /**
@@ -29,6 +30,10 @@ export interface PresetMenuOptions {
  * carries the verb it runs, and picking an entry runs it straight away and makes it the button's
  * action. A native `<select>` cannot do the second half: it only reports a change, and choosing
  * the entry that is already selected fires nothing.
+ *
+ * Each entry also has a letter, shown at its right: with the menu open, typing it runs the entry.
+ * `Ctrl+Maj+R` then `C` corrects in two keys without reaching for the mouse, while `Ctrl+R` keeps
+ * running whatever the button shows.
  */
 export class PresetMenu {
   private readonly root = requireElement<HTMLDivElement>('rewrite-split');
@@ -37,6 +42,8 @@ export class PresetMenu {
   private readonly menu = requireElement<HTMLDivElement>('preset-menu');
   private presets: readonly RewritePreset[] = [];
   private selectedId = '';
+  /** Letter of each preset, by id. A preset left without one is reachable with the arrows. */
+  private accessKeys: ReadonlyMap<string, string> = new Map();
   private busy = false;
   /** Where focus was when the menu opened, given back when it closes. */
   private returnFocus: HTMLElement | null = null;
@@ -80,6 +87,11 @@ export class PresetMenu {
     this.selectedId = presets.some((preset) => preset.id === preferredId)
       ? preferredId
       : (presets[0]?.id ?? '');
+
+    // Assigned in display order, so a derived letter goes to the entry nearest the top.
+    this.accessKeys = assignAccessKeys(
+      PRESET_GROUPS.flatMap(([kind]) => presets.filter((preset) => preset.kind === kind)),
+    );
 
     clearChildren(this.menu);
     // A group with no member is skipped rather than rendered empty, so a configuration that
@@ -149,10 +161,19 @@ export class PresetMenu {
     item.dataset['presetId'] = preset.id;
     item.setAttribute('role', 'menuitemradio');
     item.setAttribute('aria-checked', String(preset.id === this.selectedId));
-    item.append(
+    const text = createElement('span', { className: 'preset-menu__text' });
+    text.append(
       createElement('span', { className: 'preset-menu__label', text: preset.label }),
       createElement('span', { className: 'preset-menu__hint', text: preset.hint }),
     );
+    item.append(text);
+    const key = this.accessKeys.get(preset.id);
+    if (key !== undefined) {
+      item.setAttribute('aria-keyshortcuts', key.toUpperCase());
+      const cap = createElement('kbd', { className: 'preset-menu__key', text: key.toUpperCase() });
+      cap.setAttribute('aria-hidden', 'true');
+      item.append(cap);
+    }
     item.addEventListener('click', () => this.pick(preset.id));
     return item;
   }
@@ -179,7 +200,8 @@ export class PresetMenu {
   }
 
   /**
-   * Arrow keys move between entries, Home and End jump to the ends, Escape and Tab leave.
+   * Arrow keys move between entries, Home and End jump to the ends, Escape and Tab leave, and an
+   * entry's letter runs it.
    *
    * Escape is marked as handled so the window-level handler, which would otherwise close a panel
    * or hide the window, lets it through untouched. Tab is not: focus is meant to move on.
@@ -208,8 +230,21 @@ export class PresetMenu {
       case 'Tab':
         this.close({ restoreFocus: false });
         return;
-      default:
+      default: {
+        // Ctrl, Alt and Cmd combinations are left to the app: `Ctrl+C` in an open menu is not
+        // a request to correct. Shift is tolerated, since caps lock or a held Shift still means
+        // the same letter.
+        if (event.ctrlKey || event.altKey || event.metaKey || event.key.length !== 1) {
+          return;
+        }
+        const wanted = event.key.toLowerCase();
+        const match = [...this.accessKeys].find(([, key]) => key === wanted);
+        if (match !== undefined) {
+          event.preventDefault();
+          this.pick(match[0]);
+        }
         return;
+      }
     }
     event.preventDefault();
     items[next]?.focus();

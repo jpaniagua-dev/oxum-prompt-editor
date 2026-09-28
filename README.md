@@ -60,7 +60,7 @@ cannot fall out of date with the app the way this section can.
 | `Ctrl+Enter` | Copy the whole document and hide the window |
 | `Ctrl+Shift+Enter` | Copy without hiding |
 | `Ctrl+R` | Run the action shown on the button |
-| `Ctrl+Shift+R` | Open the action menu; picking an entry runs it |
+| `Ctrl+Shift+R` | Open the action menu; an entry's letter, or picking it, runs it |
 | `Ctrl+N` | New draft (the current one is archived first) |
 | `Ctrl+O` | Open a `.md` file from disk, read-only (the current draft is archived first) |
 | `Ctrl+P` | Preview: render the Markdown in place of the editor |
@@ -88,6 +88,9 @@ missing, check the version there and quit the old instance first.
 
 Every toolbar button has a shortcut, and both paths run the same command, so there is one
 implementation per action.
+
+The bar itself can be hidden with the `Aa` button in the titlebar, since it takes a full row for
+controls that mostly serve prompts. Only the buttons go: the shortcuts below keep working.
 
 | Key | Action | | Key | Action |
 | --- | --- | --- | --- | --- |
@@ -140,6 +143,14 @@ The button is a split button, and it is labelled with the action it runs (`Corri
 `Traduire (EN)`…) rather than with a fixed verb. Its arrow, or `Ctrl+Shift+R`, opens the list of
 actions with a one-line hint each; picking one runs it at once and makes it the button's action,
 which is remembered across restarts.
+
+Every entry of the menu shows a letter at its right, and typing it runs the entry: `Ctrl+Shift+R`
+then `C` corrects, then `E` translates into English, without touching the mouse. The built-ins
+declare their letters (`C` Corriger, `F` Formel, `H` Chat, `E` `R` `D` for the three
+translations, `S` Structurer, `N` Condenser, `T` Ticket) rather than deriving them, since three
+labels starting with "Traduire" would otherwise fight over one letter. A custom preset may declare
+its own with `accessKey`; one that does not, or whose letter is taken, gets the first free letter
+of its label, and a declared letter always wins, so adding a preset never moves one you know.
 
 The result appears in a side panel, never straight into your buffer. `Appliquer` archives your
 original first and replaces the text in a single transaction, so one `Ctrl+Z` brings your own
@@ -275,9 +286,10 @@ behaviour, and it left no way back from a mistyped global shortcut.
 | `codex.cliPath` | `""` | Empty means auto-detect: PATH, then the local Codex app installation |
 | `codex.modelByPresetId` | `{}` | Per-action Codex override; empty uses `codex.model` |
 | `defaultPresetId` | `structure` | |
+| `showFormatBar` | `true` | Also toggled by the `Aa` button. The formatting shortcuts work either way |
 | `notesDirectory` | `""` | Absolute path. Empty means `%APPDATA%\oxum-prompt-editor\notes`; a relative path is rejected |
 | `promptsDirectory` | `""` | Same, for the prompt library. Empty means `…\oxum-prompt-editor\prompts` |
-| `customPresets` | `[]` | Reusing a built-in `id` overrides it. Each entry takes `id`, `label`, `hint`, `systemPrompt` and an optional `kind` (`agent-prompt`, the default, or `text`) |
+| `customPresets` | `[]` | Reusing a built-in `id` overrides it. Each entry takes `id`, `label`, `hint`, `systemPrompt`, an optional `kind` (`agent-prompt`, the default, or `text`) and an optional one-letter `accessKey` |
 
 ## Theming
 

@@ -148,6 +148,17 @@ pratique.
   faire : il ne signale qu'un changement, donc rechoisir l'entrée déjà sélectionnée ne déclenche
   rien. Le menu marque son `Escape` comme traité (`preventDefault`), sinon le `keydown` de la
   fenêtre fermerait un panneau ou masquerait la fenêtre en même temps.
+- **Chaque action du menu a une lettre** (`accessKey`), qui la lance quand le menu est ouvert.
+  Les presets intégrés **déclarent** la leur au lieu de la dériver : les trois « Traduire » se
+  disputeraient la même initiale. `assignAccessKeys` (`src/renderer/ui/access-keys.ts`, sans DOM,
+  testé) procède en deux passes pour qu'une lettre déclarée gagne toujours sur une lettre
+  dérivée : sinon, ajouter un preset personnalisé déplacerait une lettre déjà apprise. Un override
+  par id hérite de la lettre du preset intégré, c'est pourquoi `asPresets` **omet** la clé au lieu
+  de la mettre à `undefined` (le spread de `mergePresets` l'écraserait). `Ctrl`, `Alt` et `Cmd`
+  combinés à une lettre restent à l'app.
+- **Masquer la barre de format (`showFormatBar`, bouton `Aa`) ne retire que les boutons.** Les
+  commandes vivent dans le keymap de l'éditeur, donc `Ctrl+B` et les autres restent actifs ;
+  c'est ce qui rend le masquage gratuit. Ne pas conditionner le keymap à ce réglage.
 - **Le badge de tokens ne s'affiche que si l'action sélectionnée est `agent-prompt`**
   (`refreshTokenBadge`). C'est un budget de prompt ; à côté d'un mail, c'est un chiffre sans
   décision attachée.

@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     cliPath: '',
   },
   defaultPresetId: 'structure',
+  showFormatBar: true,
   // Empty means "the default directory under userData", resolved by the caller. Storing the
   // resolved path instead would freeze it, and it moves with the Electron user data directory
   // (a dev run uses its own).
@@ -128,6 +129,7 @@ export function sanitizeSettings(raw: unknown): AppSettings {
       cliPath: asString(codex.cliPath, DEFAULT_SETTINGS.codex.cliPath),
     },
     defaultPresetId: asString(input.defaultPresetId, DEFAULT_SETTINGS.defaultPresetId),
+    showFormatBar: asBoolean(input.showFormatBar, DEFAULT_SETTINGS.showFormatBar),
     notesDirectory: asAbsolutePath(input.notesDirectory),
     promptsDirectory: asAbsolutePath(input.promptsDirectory),
     customPresets: asPresets(input.customPresets),
@@ -261,13 +263,22 @@ function asPresets(value: unknown): RewritePreset[] {
     ) {
       continue;
     }
+    const accessKey = asAccessKey(candidate.accessKey);
     presets.push({
       id,
       label,
       hint: asString(candidate.hint, ''),
       kind: candidate.kind === 'text' ? 'text' : 'agent-prompt',
       systemPrompt,
+      // Omitted rather than undefined, so a custom preset overriding a built-in by id keeps the
+      // built-in's letter through the spread in `mergePresets`.
+      ...(accessKey === null ? {} : { accessKey }),
     });
   }
   return presets;
+}
+
+/** A single letter or digit, lowercased; anything else is dropped and derived from the label. */
+function asAccessKey(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-z0-9]$/i.test(value) ? value.toLowerCase() : null;
 }

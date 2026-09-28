@@ -273,6 +273,7 @@ function asSettingsPatch(value: unknown): Partial<AppSettings> {
   if (isClaudeSettings(input.claude)) patch.claude = input.claude;
   if (isCliSettings(input.codex)) patch.codex = input.codex;
   if (typeof input.defaultPresetId === 'string') patch.defaultPresetId = input.defaultPresetId;
+  if (typeof input.showFormatBar === 'boolean') patch.showFormatBar = input.showFormatBar;
   if (typeof input.notesDirectory === 'string') patch.notesDirectory = input.notesDirectory;
   if (typeof input.promptsDirectory === 'string') patch.promptsDirectory = input.promptsDirectory;
 

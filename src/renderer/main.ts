@@ -472,6 +472,20 @@ class App {
     this.statusBar.setMessage('réglages enregistrés');
   }
 
+  /**
+   * Shows or hides the formatting bar and keeps its toggle in step.
+   *
+   * Only the bar goes: the formatting commands live in the editor keymap, so `Ctrl+B` and the rest
+   * keep working with it hidden, which is what makes hiding it cost nothing.
+   */
+  private reflectFormatBar(visible: boolean): void {
+    requireElement<HTMLDivElement>('app-root').classList.toggle('app--no-format-bar', !visible);
+    requireElement<HTMLButtonElement>('format-toggle-button').setAttribute(
+      'aria-pressed',
+      String(visible),
+    );
+  }
+
   /** Keeps the pin button in step with the setting, whichever control changed it. */
   private reflectPinState(pinned: boolean): void {
     requireElement<HTMLButtonElement>('pin-button').setAttribute('aria-pressed', String(pinned));
@@ -1034,6 +1048,20 @@ class App {
   private bindChrome(): void {
     requireElement<HTMLButtonElement>('hide-button').addEventListener('click', () => {
       window.api.hideWindow();
+    });
+
+    const formatToggle = requireElement<HTMLButtonElement>('format-toggle-button');
+    this.reflectFormatBar(this.settings?.showFormatBar ?? true);
+    formatToggle.addEventListener('click', () => {
+      const next = formatToggle.getAttribute('aria-pressed') !== 'true';
+      this.reflectFormatBar(next);
+      void window.api.updateSettings({ showFormatBar: next });
+      if (this.settings !== null) {
+        this.settings = { ...this.settings, showFormatBar: next };
+      }
+      this.statusBar.setMessage(
+        next ? 'barre de mise en forme affichée' : 'barre masquée, ses raccourcis restent actifs',
+      );
     });
 
     const pin = requireElement<HTMLButtonElement>('pin-button');

@@ -22,6 +22,22 @@
         </span>
         <div class="titlebar__actions">
           <!--
+            Shows or hides the Markdown formatting bar, a full row of buttons that mostly serves
+            prompts. A glyph for the same reason as the help button: "Aa" is the sign text
+            formatting controls already use, and no drawing of it reads better at 14px. Pressed
+            means the bar is on screen.
+          -->
+          <button
+            type="button"
+            id="format-toggle-button"
+            class="icon-button icon-button--glyph icon-button--small-glyph"
+            title="Barre de mise en forme (ses raccourcis restent actifs)"
+            aria-label="Barre de mise en forme"
+            aria-pressed="true"
+          >
+            Aa
+          </button>
+          <!--
             A view mode, not an action, so it belongs with the chrome rather than in the toolbar
             beside the buttons that change the draft. Pressed state says which of the two views
             is on screen, since the editor and the preview never show at the same time.

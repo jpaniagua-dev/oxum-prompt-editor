@@ -72,6 +72,14 @@ export interface RewritePreset {
   readonly kind: PresetKind;
   /** Instructions handed to the selected rewrite CLI. */
   readonly systemPrompt: string;
+  /**
+   * Letter that runs the preset while the action menu is open, lowercase.
+   *
+   * Optional: a preset without one, or whose letter is already taken, gets one derived from its
+   * label (`assignAccessKeys`). Declaring it is what keeps the built-ins' letters stable when a
+   * custom preset is added.
+   */
+  readonly accessKey?: string;
 }
 
 /** Persisted user settings. Every field has a default in `settings-store.ts`. */
@@ -96,6 +104,8 @@ export interface AppSettings {
   codex: RewriteCliSettings;
   /** Default preset used by the Rewrite button and its shortcut. */
   defaultPresetId: string;
+  /** Show the Markdown formatting bar. Its shortcuts keep working while it is hidden. */
+  showFormatBar: boolean;
   /**
    * Absolute directory holding the notes. Empty means the default under `userData`.
    *

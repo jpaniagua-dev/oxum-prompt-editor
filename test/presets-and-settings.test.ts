@@ -129,8 +129,10 @@ describe('presets', () => {
 
     expect(merged).toHaveLength(BUILT_IN_PRESETS.length);
     const overridden = merged.find((preset) => preset.id === 'structure');
+    // The letter is inherited: rewording a built-in must not move the key the user has learnt.
     expect(overridden).toEqual({
       id: 'structure',
+      accessKey: 's',
       label: 'Mon style',
       hint: 'perso',
       kind: 'agent-prompt',
@@ -317,6 +319,25 @@ describe('sanitizeSettings', () => {
       kind: 'agent-prompt',
       systemPrompt: 'X',
     });
+  });
+
+  it('keeps a valid access key on a custom preset and drops any other', () => {
+    const settings = sanitizeSettings({
+      customPresets: [
+        { id: 'upper', label: 'U', systemPrompt: 'X', accessKey: 'Q' },
+        { id: 'long', label: 'L', systemPrompt: 'X', accessKey: 'qq' },
+      ],
+    });
+
+    expect(settings.customPresets[0]?.accessKey).toBe('q');
+    // Omitted rather than undefined, so an override of a built-in keeps the built-in's letter.
+    expect(settings.customPresets[1]).not.toHaveProperty('accessKey');
+  });
+
+  it('shows the formatting bar unless told otherwise', () => {
+    expect(sanitizeSettings({}).showFormatBar).toBe(true);
+    expect(sanitizeSettings({ showFormatBar: false }).showFormatBar).toBe(false);
+    expect(sanitizeSettings({ showFormatBar: 'non' }).showFormatBar).toBe(true);
   });
 
   it('migrates the legacy Claude keys without losing their values', () => {
