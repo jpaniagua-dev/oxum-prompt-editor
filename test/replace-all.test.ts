@@ -2,7 +2,7 @@
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getText, replaceAll } from '../src/renderer/editor/create-editor.js';
+import { getText, replaceAll, replaceRange } from '../src/renderer/editor/create-editor.js';
 
 const views: EditorView[] = [];
 
@@ -82,5 +82,27 @@ describe('replaceAll', () => {
 
     // A single transaction: one entry in the change set, not one per line.
     expect(view.state.doc.toString()).toBe('remplacé');
+  });
+});
+
+describe('replaceRange', () => {
+  it('replaces only the range and selects what it inserted', () => {
+    // Selecting the result lets the next action run on it straight away: correct, then translate.
+    const view = viewWith('Titre\nune frase\nSuite');
+
+    replaceRange(view, 6, 15, 'une phrase');
+
+    expect(getText(view)).toBe('Titre\nune phrase\nSuite');
+    expect(view.state.selection.main.from).toBe(6);
+    expect(view.state.selection.main.to).toBe(16);
+  });
+
+  it('measures the selection on the converted text, so CRLF cannot push it outside', () => {
+    const view = viewWith('a\nb');
+
+    replaceRange(view, 0, 1, 'x\r\ny');
+
+    expect(getText(view)).toBe('x\ny\nb');
+    expect(view.state.selection.main.to).toBe(3);
   });
 });

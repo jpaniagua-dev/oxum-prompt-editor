@@ -271,8 +271,11 @@ function asPresets(value: unknown): RewritePreset[] {
       kind: candidate.kind === 'text' ? 'text' : 'agent-prompt',
       systemPrompt,
       // Omitted rather than undefined, so a custom preset overriding a built-in by id keeps the
-      // built-in's letter through the spread in `mergePresets`.
+      // built-in's letter and review mode through the spread in `mergePresets`.
       ...(accessKey === null ? {} : { accessKey }),
+      ...(typeof candidate.reviewAsDiff === 'boolean'
+        ? { reviewAsDiff: candidate.reviewAsDiff }
+        : {}),
     });
   }
   return presets;

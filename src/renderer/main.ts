@@ -20,8 +20,15 @@ import {
   focusAtEnd,
   getText,
   replaceAll,
+  replaceRange,
 } from './editor/create-editor.js';
 import { createAppKeymap } from './editor/keymap.js';
+import {
+  rewrapResult,
+  scopeOfSelection,
+  scopeStillHolds,
+  type RewriteScope,
+} from './editor/rewrite-scope.js';
 import { windowCommandFor } from './editor/shortcuts.js';
 import { createElement, requireElement } from './ui/dom.js';
 import { formatTimestamp } from './ui/format.js';
@@ -31,8 +38,9 @@ import { confirmButton, renderLibraryEmpty, renderLibraryList } from './ui/libra
 import { PresetMenu } from './ui/preset-menu.js';
 import { PreviewPane } from './ui/preview-pane.js';
 import { SettingsPage } from './ui/settings-page.js';
-import { SidePanel, type PanelMode } from './ui/side-panel.js';
+import { SidePanel, type PanelButton, type PanelMode } from './ui/side-panel.js';
 import { StatusBar } from './ui/status-bar.js';
+import { diffTexts } from './ui/text-diff.js';
 import { Toast } from './ui/toast.js';
 import { TokenBadge } from './ui/token-badge.js';
 
@@ -94,6 +102,18 @@ class App {
   /** Provider captured at start, so the result always names the engine that actually ran. */
   private activeRewriteProvider: RewriteProvider = 'claude';
   private rewriteBuffer = '';
+  /**
+   * What the last rewrite worked on: a selection, or null for the whole draft.
+   *
+   * Kept after the run ends, because applying and retrying both need it: applying replaces that
+   * range and nothing else, and retrying sends the same text again rather than whatever happens
+   * to be selected by then.
+   */
+  private rewriteScope: RewriteScope | null = null;
+  /** The exact text handed to the model, which the diff is computed against. */
+  private rewriteSentText = '';
+  /** Whether the last preset run opens its result as a diff. */
+  private rewriteReviewAsDiff = false;
 
   async start(): Promise<void> {
     const bootstrap = await window.api.bootstrap();
@@ -818,13 +838,17 @@ class App {
     this.tokenBadge.update(writesPrompt ? text : '');
   }
 
-  private async startRewrite(presetId: string): Promise<void> {
+  /**
+   * Starts a rewrite of the selection, or of the whole draft when nothing is selected.
+   *
+   * `reuse` is for retrying: it replays the scope of the previous run instead of reading the
+   * selection again, which may have moved since.
+   */
+  private async startRewrite(
+    presetId: string,
+    reuse?: { readonly scope: RewriteScope | null },
+  ): Promise<void> {
     if (this.editor === null) {
-      return;
-    }
-    const original = getText(this.editor);
-    if (original.trim().length === 0) {
-      this.toast.show('Rien à réécrire');
       return;
     }
     if (this.activeRewriteId !== null) {
@@ -832,15 +856,37 @@ class App {
       return;
     }
 
+    const document = getText(this.editor);
+    let scope: RewriteScope | null;
+    if (reuse !== undefined) {
+      scope = reuse.scope;
+    } else {
+      const selection = this.editor.state.selection.main;
+      scope = selection.empty ? null : scopeOfSelection(document, selection.from, selection.to);
+      if (!selection.empty && scope === null) {
+        this.toast.show('Rien à réécrire dans la sélection');
+        return;
+      }
+    }
+    const sent = scope?.core ?? document;
+    if (sent.trim().length === 0) {
+      this.toast.show('Rien à réécrire');
+      return;
+    }
+
     const requestId = crypto.randomUUID();
     this.activeRewriteId = requestId;
     this.rewriteBuffer = '';
+    this.rewriteScope = scope;
+    this.rewriteSentText = sent;
 
     const preset = this.presets.find((candidate) => candidate.id === presetId);
     this.activeRewriteKind = preset?.kind ?? 'agent-prompt';
+    this.rewriteReviewAsDiff = preset?.reviewAsDiff === true;
     this.activeRewriteProvider = this.settings?.rewriteProvider ?? 'claude';
     const provider = providerLabel(this.activeRewriteProvider);
-    this.panel.open('rewrite', `${preset?.label ?? presetId} · ${provider}`, () => {
+    const target = scope === null ? '' : ' · sélection';
+    this.panel.open('rewrite', `${preset?.label ?? presetId}${target} · ${provider}`, () => {
       if (this.activeRewriteId !== null) {
         void window.api.cancelRewrite(this.activeRewriteId);
       }
@@ -851,9 +897,11 @@ class App {
       { label: 'Annuler', onClick: () => void window.api.cancelRewrite(requestId) },
     ]);
     this.setRewriteButtonBusy(true);
-    this.statusBar.setMessage(`${provider} · réécriture en cours…`);
+    this.statusBar.setMessage(
+      `${provider} · réécriture ${scope === null ? '' : 'de la sélection '}en cours…`,
+    );
 
-    await window.api.startRewrite({ requestId, text: original, presetId });
+    await window.api.startRewrite({ requestId, text: sent, presetId });
   }
 
   private subscribeToRewrites(): void {
@@ -880,8 +928,12 @@ class App {
     this.activeRewriteId = null;
     this.setRewriteButtonBusy(false);
     this.panel.setStreaming(false);
-    // The streamed deltas were only a progress indicator: the final result is authoritative.
-    this.panel.setText(text);
+
+    const scope = this.rewriteScope;
+    // A selection's answer is trimmed because it goes back inside the selection's own whitespace
+    // (`rewrapResult`); the whole draft is taken as the model returned it, as it always was.
+    const answer = scope === null ? text : text.trim();
+    const diff = diffTexts(this.rewriteSentText, answer);
 
     const cost = costUsd === null ? '' : ` · ${costUsd.toFixed(4)} $`;
     this.statusBar.setMessage(
@@ -891,18 +943,52 @@ class App {
     // A `text` result is meant to be sent somewhere else, not to become the draft, so copying
     // is the primary action there. Applying stays available: it is snapshotted and undoable.
     const apply = {
-      label: 'Appliquer',
-      title: 'Remplace le texte (Ctrl+Z pour revenir)',
-      onClick: () => void this.applyRewrite(text),
+      label: scope === null ? 'Appliquer' : 'Remplacer la sélection',
+      title:
+        scope === null
+          ? 'Remplace le texte (Ctrl+Z pour revenir)'
+          : 'Remplace seulement la sélection (Ctrl+Z pour revenir)',
+      onClick: () => void this.applyRewrite(answer, scope),
     };
-    const copy = { label: 'Copier', onClick: () => void this.copyRewrite(text) };
+    const copy = { label: 'Copier', onClick: () => void this.copyRewrite(answer) };
     const retry = { label: 'Relancer', onClick: () => void this.retryRewrite() };
-
-    this.panel.setActions(
+    const ordered: PanelButton[] =
       this.activeRewriteKind === 'text'
-        ? [{ ...copy, variant: 'primary' }, { ...apply, variant: 'accent' }, retry]
-        : [{ ...apply, variant: 'primary' }, { ...copy, variant: 'accent' }, retry],
-    );
+        ? [
+            { ...copy, variant: 'primary' },
+            { ...apply, variant: 'accent' },
+          ]
+        : [
+            { ...apply, variant: 'primary' },
+            { ...copy, variant: 'accent' },
+          ];
+
+    // Either view is one click away whatever the preset opens on: a diff is what proofreading is
+    // read for, and a reworded text is easier to judge whole.
+    let showingDiff = this.rewriteReviewAsDiff;
+    const render = (): void => {
+      // The streamed deltas were only a progress indicator: the final result is authoritative.
+      if (showingDiff) {
+        this.panel.setDiff(diff);
+      } else {
+        this.panel.setText(answer);
+      }
+      this.panel.setActions([
+        ...ordered,
+        retry,
+        {
+          label: showingDiff ? 'Texte' : 'Différences',
+          title: showingDiff
+            ? 'Afficher le résultat seul'
+            : 'Afficher ce qui a changé par rapport à ton texte',
+          onClick: () => {
+            showingDiff = !showingDiff;
+            render();
+          },
+        },
+      ]);
+    };
+    render();
   }
 
   private failRewrite(reason: RewriteErrorEvent['reason'], message: string): void {
@@ -925,20 +1011,33 @@ class App {
   }
 
   /**
-   * Swaps the rewritten text in.
+   * Swaps the rewritten text in, over the whole draft or over the selection it came from.
    *
    * The original is archived first and the replacement is a single transaction, so both
    * `Ctrl+Z` and the history panel can bring it back. The user's own words are never one
    * click away from being gone.
    */
-  private async applyRewrite(text: string): Promise<void> {
+  private async applyRewrite(text: string, scope: RewriteScope | null): Promise<void> {
     if (this.editor === null) {
       return;
     }
-    await window.api.snapshotDraft(getText(this.editor), 'rewrite');
-    // A rewrite keeps the file binding: it is the same document, reworded, and writing it back
-    // is exactly what the user is likely to do next.
-    this.replaceDocument(this.editor, text);
+    const current = getText(this.editor);
+    if (scope !== null && !scopeStillHolds(current, scope)) {
+      this.toast.error(
+        'La sélection a changé pendant la réécriture : copie le résultat ou relance',
+      );
+      return;
+    }
+    await window.api.snapshotDraft(current, 'rewrite');
+    // A rewrite keeps the file binding: it is the same document, reworded.
+    if (scope === null) {
+      this.replaceDocument(this.editor, text);
+    } else {
+      replaceRange(this.editor, scope.from, scope.to, rewrapResult(scope, text));
+      if (this.preview.isOpen) {
+        this.preview.show(getText(this.editor));
+      }
+    }
     this.panel.close();
     this.editor.focus();
     this.toast.show('Appliqué · Ctrl+Z pour revenir à ta version');
@@ -952,7 +1051,7 @@ class App {
   private async retryRewrite(): Promise<void> {
     const presetId = this.currentPresetId();
     this.panel.close();
-    await this.startRewrite(presetId);
+    await this.startRewrite(presetId, { scope: this.rewriteScope });
   }
 
   private setRewriteButtonBusy(busy: boolean): void {

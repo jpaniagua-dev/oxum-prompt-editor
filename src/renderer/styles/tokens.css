@@ -55,6 +55,9 @@
   --primary-border: var(--brand-primary-low-light);
 
   --success: var(--brand-success);
+  /* A wash of the success colour, for the added runs of a diff. Mixed rather than a new hex, so
+     it stays in the palette family. */
+  --success-soft: color-mix(in srgb, var(--success) 16%, var(--surface));
   --warning: var(--brand-warning);
   --danger: var(--brand-error);
   --info: var(--brand-info);
@@ -119,6 +122,7 @@
   /* Same reasoning for the status colours: the dark palette values are unreadable on dark, so
      each one steps up to its lighter sibling in the ramp. */
   --success: var(--brand-success-light);
+  --success-soft: color-mix(in srgb, var(--success) 20%, var(--surface));
   --warning: var(--brand-warning-light);
   --danger: var(--brand-error-light);
   --info: #b8bfe7;

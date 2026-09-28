@@ -138,6 +138,23 @@ export function replaceAll(view: EditorView, text: string): void {
   });
 }
 
+/**
+ * Replaces one range in a single transaction and selects what was inserted.
+ *
+ * Same single-undo-step guarantee as {@link replaceAll}, and the same measuring rule: the new
+ * selection is derived from the converted text, not from the raw string. Selecting the result
+ * rather than parking the caret lets the next action run on it straight away, which is how a
+ * paragraph gets corrected and then translated.
+ */
+export function replaceRange(view: EditorView, from: number, to: number, text: string): void {
+  const insert = view.state.toText(text);
+  view.dispatch({
+    changes: { from, to, insert },
+    selection: { anchor: from, head: from + insert.length },
+    scrollIntoView: true,
+  });
+}
+
 /** Puts the caret at the end and focuses, for restoring a session. */
 export function focusAtEnd(view: EditorView): void {
   view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });

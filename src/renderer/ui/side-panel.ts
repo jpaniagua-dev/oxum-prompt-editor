@@ -1,4 +1,5 @@
 import { clearChildren, createElement, requireElement } from './dom.js';
+import type { TextDiff } from './text-diff.js';
 
 export interface PanelButton {
   readonly label: string;
@@ -192,6 +193,44 @@ export class SidePanel {
     }
   }
 
+  /**
+   * Shows a result as a diff against what was sent: removed words struck, added ones underlined.
+   *
+   * A changed run that is only whitespace would be invisible, and French typography is exactly
+   * that (a non-breaking space before ":"), so those runs get a tinted block and a tooltip naming
+   * the character, and a changed line break is drawn as "↵". The markers are display only: copying
+   * or applying uses the result text, never what this renders.
+   */
+  setDiff(diff: TextDiff): void {
+    this.stopPending();
+    clearChildren(this.body);
+
+    const summary = createElement('div', {
+      className: 'diff-summary',
+      text:
+        diff.changes === 0
+          ? 'Aucune modification'
+          : `${diff.changes} modification${diff.changes > 1 ? 's' : ''}`,
+    });
+    const content = createElement('div', { className: 'diff' });
+    for (const segment of diff.segments) {
+      if (segment.kind === 'same') {
+        content.append(document.createTextNode(segment.text));
+        continue;
+      }
+      const node = createElement(segment.kind === 'added' ? 'ins' : 'del', {
+        className: segment.kind === 'added' ? 'diff__added' : 'diff__removed',
+        text: segment.text.replace(/\n/g, '↵\n'),
+      });
+      if (segment.text.trim().length === 0) {
+        node.classList.add('diff__space');
+        node.title = describeWhitespace(segment.text);
+      }
+      content.append(node);
+    }
+    this.body.append(summary, content);
+  }
+
   /** Replaces the body with arbitrary nodes, used by the history list. */
   setContent(...nodes: readonly Node[]): void {
     this.stopPending();
@@ -229,4 +268,15 @@ export class SidePanel {
       this.footer.append(button);
     }
   }
+}
+
+/** Names the whitespace in a changed run, for the tooltip of a block that shows nothing. */
+function describeWhitespace(text: string): string {
+  if (text.includes('\n')) {
+    return 'retour à la ligne';
+  }
+  if (/[\u00a0\u202f]/.test(text)) {
+    return 'espace insécable';
+  }
+  return 'espace';
 }

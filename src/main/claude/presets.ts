@@ -142,6 +142,7 @@ why.`,
   {
     id: 'fix',
     accessKey: 'c',
+    reviewAsDiff: true,
     label: 'Corriger',
     hint: 'Orthographe, grammaire, typographie. Rien d’autre ne bouge.',
     kind: 'text',

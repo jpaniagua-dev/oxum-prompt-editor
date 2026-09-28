@@ -80,6 +80,8 @@ describe('presets', () => {
     expect(fix?.kind).toBe('text');
     expect(fix?.systemPrompt).toMatch(/Do NOT rephrase, reorder, restructure/);
     expect(fix?.systemPrompt).toContain('return the input unchanged');
+    // Its value is in what it changed, so it opens on the diff rather than on the full text.
+    expect(fix?.reviewAsDiff).toBe(true);
   });
 
   it('keeps "Chat" readable when nothing renders it', () => {
@@ -332,6 +334,18 @@ describe('sanitizeSettings', () => {
     expect(settings.customPresets[0]?.accessKey).toBe('q');
     // Omitted rather than undefined, so an override of a built-in keeps the built-in's letter.
     expect(settings.customPresets[1]).not.toHaveProperty('accessKey');
+  });
+
+  it('keeps a boolean review mode on a custom preset and drops any other value', () => {
+    const settings = sanitizeSettings({
+      customPresets: [
+        { id: 'diff', label: 'D', systemPrompt: 'X', reviewAsDiff: true },
+        { id: 'odd', label: 'O', systemPrompt: 'X', reviewAsDiff: 'oui' },
+      ],
+    });
+
+    expect(settings.customPresets[0]?.reviewAsDiff).toBe(true);
+    expect(settings.customPresets[1]).not.toHaveProperty('reviewAsDiff');
   });
 
   it('shows the formatting bar unless told otherwise', () => {

@@ -80,6 +80,14 @@ export interface RewritePreset {
    * custom preset is added.
    */
   readonly accessKey?: string;
+  /**
+   * Show the result as a diff against what was sent, rather than as plain text.
+   *
+   * For a preset whose value is in what it changed, proofreading above all: reading a corrected
+   * text in full to find three fixes is the work the preset was meant to save. Either view can be
+   * switched to from the panel, whatever this says.
+   */
+  readonly reviewAsDiff?: boolean;
 }
 
 /** Persisted user settings. Every field has a default in `settings-store.ts`. */

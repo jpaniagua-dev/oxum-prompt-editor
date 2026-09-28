@@ -156,6 +156,23 @@ The result appears in a side panel, never straight into your buffer. `Appliquer`
 original first and replaces the text in a single transaction, so one `Ctrl+Z` brings your own
 wording back verbatim.
 
+**With a selection, an action works on the selection only.** The model receives just that text,
+and the button becomes `Remplacer la sélection`, which replaces that range and leaves the rest of
+the draft alone. The whitespace around the selection is set aside and put back, because a model
+returns a trimmed answer and a selection ending on a line break would otherwise glue the next line
+onto it. The inserted text is left selected, so a paragraph can be corrected and then translated
+in two runs. The draft stays editable while the model works; if the selected text changed in the
+meantime, replacing is refused rather than overwriting words the model never saw, and the result
+can still be copied.
+
+**The result can be read as a diff.** `Différences` shows what changed against what was sent,
+removed words struck and added ones underlined, with a count on top ("Aucune modification" answers
+the question before any reading). Changed whitespace gets a dashed block and a tooltip, since
+French typography is exactly that: a non-breaking space before a colon would otherwise show as
+nothing. `Corriger` opens on the diff, because reading a corrected text in full to find three
+fixes is the work it is meant to save; the other actions open on the text, and either view is one
+click away. A custom preset can open on the diff with `"reviewAsDiff": true`.
+
 Every preset forbids the model from inventing content. Without that constraint, rewriting
 reliably adds requirements you never wrote.
 
@@ -289,7 +306,7 @@ behaviour, and it left no way back from a mistyped global shortcut.
 | `showFormatBar` | `true` | Also toggled by the `Aa` button. The formatting shortcuts work either way |
 | `notesDirectory` | `""` | Absolute path. Empty means `%APPDATA%\oxum-prompt-editor\notes`; a relative path is rejected |
 | `promptsDirectory` | `""` | Same, for the prompt library. Empty means `…\oxum-prompt-editor\prompts` |
-| `customPresets` | `[]` | Reusing a built-in `id` overrides it. Each entry takes `id`, `label`, `hint`, `systemPrompt`, an optional `kind` (`agent-prompt`, the default, or `text`) and an optional one-letter `accessKey` |
+| `customPresets` | `[]` | Reusing a built-in `id` overrides it. Each entry takes `id`, `label`, `hint`, `systemPrompt`, an optional `kind` (`agent-prompt`, the default, or `text`) an optional one-letter `accessKey` and an optional `reviewAsDiff` |
 
 ## Theming
 

@@ -19,11 +19,13 @@ préserver ces propriétés :
   temp + rename, jamais `writeFile` direct sur un fichier de données. Un `writeFile` tronque
   avant d'écrire, donc un crash au mauvais moment détruit le brouillon.
 - **Toute action qui remplace ou vide le buffer archive d'abord** un instantané via
-  `snapshotDraft`. Cela concerne `Nouveau`, `Appliquer` une réécriture, `restaurer` un
-  instantané et **charger une note**. Copier un prompt de la bibliothèque ne touche pas au
-  buffer, donc n'a rien à archiver.
-- **Un remplacement de document se fait en une seule transaction CodeMirror** (`replaceAll`),
-  pour qu'un unique `Ctrl+Z` le défasse.
+  `snapshotDraft`. Cela concerne `Nouveau`, `Appliquer` une réécriture (y compris
+  `Remplacer la sélection`, qui archive le brouillon entier), `restaurer` un instantané et
+  **charger une note**. Copier un prompt de la bibliothèque ne touche pas au buffer, donc n'a rien
+  à archiver.
+- **Un remplacement de document se fait en une seule transaction CodeMirror** (`replaceAll`, ou
+  `replaceRange` pour une sélection), pour qu'un unique `Ctrl+Z` le défasse. Les deux mesurent le
+  texte **converti** par `toText`, jamais la chaîne brute (voir le piège CRLF plus bas).
 
 Ajouter une fonctionnalité qui viole l'un de ces points est un régression, même si elle est
 pratique.
@@ -159,6 +161,21 @@ pratique.
 - **Masquer la barre de format (`showFormatBar`, bouton `Aa`) ne retire que les boutons.** Les
   commandes vivent dans le keymap de l'éditeur, donc `Ctrl+B` et les autres restent actifs ;
   c'est ce qui rend le masquage gratuit. Ne pas conditionner le keymap à ce réglage.
+- **Une action sur une sélection ne travaille que sur elle** (`src/renderer/editor/rewrite-scope.ts`,
+  sans CodeMirror, testé). Trois règles tiennent ce comportement :
+  - le blanc qui entoure la sélection est mis de côté puis remis (`rewrapResult`), parce qu'un
+    modèle rend une réponse rognée et qu'une sélection finissant sur un saut de ligne recollerait
+    la ligne suivante ;
+  - avant de remplacer, `scopeStillHolds` vérifie que la plage contient encore le texte envoyé.
+    Le brouillon reste éditable pendant la réécriture, et des offsets décalés écraseraient des mots
+    que le modèle n'a jamais vus : on refuse, le résultat reste copiable ;
+  - `Relancer` rejoue la **même** portée (`rewriteScope`), pas la sélection du moment.
+- **Le diff du panneau n'est qu'un affichage** (`diffTexts`, jsdiff `diffWordsWithSpace`). Il
+  compare au texte **envoyé** (`rewriteSentText`), pas au brouillon, et ses marqueurs (`↵`, blocs
+  d'espace) ne partent jamais : `Copier` et `Appliquer` prennent toujours le texte du résultat. Les
+  blancs sont des tokens à part entière parce que la typographie française est précisément un
+  changement de blanc. `reviewAsDiff` choisit seulement la vue d'ouverture, et `Corriger` est le
+  seul preset intégré à ouvrir sur le diff.
 - **Le badge de tokens ne s'affiche que si l'action sélectionnée est `agent-prompt`**
   (`refreshTokenBadge`). C'est un budget de prompt ; à côté d'un mail, c'est un chiffre sans
   décision attachée.

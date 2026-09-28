@@ -39,7 +39,7 @@ export function assignAccessKeys(
     }
     const letters = preset.label
       .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
+      .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '');
     const free = [...letters].find((letter) => !taken.has(letter));
