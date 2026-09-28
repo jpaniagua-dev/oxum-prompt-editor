@@ -91,6 +91,25 @@ describe('presets', () => {
     expect(chat?.systemPrompt).toContain('no bold or italic markers');
   });
 
+  it('translates without reshaping, in each target language', () => {
+    // Translation used to be an agent-prompt preset, whose "use headings and bullets" rule came
+    // back as a restructured email. It must keep the input's formatting, whatever that is.
+    const translations = BUILT_IN_PRESETS.filter((preset) => preset.id.startsWith('translate-'));
+    expect(translations.map((preset) => preset.id)).toEqual([
+      'translate-en',
+      'translate-fr',
+      'translate-de',
+    ]);
+
+    for (const preset of translations) {
+      expect(preset.kind, preset.id).toBe('text');
+      expect(preset.systemPrompt, preset.id).not.toContain('Use headings, bullets');
+      expect(preset.systemPrompt, preset.id).toContain('Keep the formatting exactly as it is');
+      expect(preset.systemPrompt, preset.id).toContain('keep its form of address');
+      expect(preset.systemPrompt, preset.id).toContain('Never add or remove a greeting');
+    }
+  });
+
   it('keeps the built-ins when there is no custom preset', () => {
     expect(mergePresets([]).map((preset) => preset.id)).toEqual(
       BUILT_IN_PRESETS.map((preset) => preset.id),

@@ -43,6 +43,49 @@ const AGENT_PROMPT_RULES = `The result is a prompt for a coding agent, written i
  */
 const REGISTER_RULES = `Never change how the reader is addressed: keep "tu" as "tu" and "vous" as "vous", along with the agreement and possessives that follow. Never add or remove a greeting or a sign-off. Never append a section of any kind.`;
 
+/**
+ * Builds one translation preset per target language.
+ *
+ * Translation is `text` rather than `agent-prompt` because it must not change the shape of the
+ * input. It used to carry `AGENT_PROMPT_RULES`, whose "use headings and bullets" nudge is right for
+ * a prompt and wrong for an email: a translated message came back restructured. Keeping the
+ * formatting verbatim serves both cases, since a Markdown prompt stays Markdown and a plain
+ * message stays plain.
+ *
+ * The form of address follows the same reasoning as `REGISTER_RULES`: "tu" versus "vous" is a
+ * fact about the relationship, so it carries over wherever the target language can express it.
+ */
+function translationPreset(target: {
+  readonly id: 'translate-en' | 'translate-fr' | 'translate-de';
+  readonly code: string;
+  /** Name of the language as the model reads it. */
+  readonly language: string;
+  /** The same name as the user reads it, in the hint. */
+  readonly displayName: string;
+  /** Extra typographic rule for the target, empty or ending with a space. */
+  readonly typography: string;
+}): RewritePreset {
+  const { id, code, language, displayName, typography } = target;
+  return {
+    id,
+    label: `Traduire (${code})`,
+    hint: `Vers l’${displayName}, mise en forme inchangée`,
+    kind: 'text',
+    systemPrompt: `${CORE_RULES}
+
+Preset: TRANSLATE TO ${language.toUpperCase()}.
+Translate the draft into natural, idiomatic ${language}, phrased the way a native writer would put
+it rather than word for word. Keep the formatting exactly as it is: Markdown stays Markdown with
+the same headings, lists and emphasis, and plain text stays plain, with no markup added. Keep every
+line break, blank line, paragraph and bullet in its order. Do not restructure, summarise or
+expand. Leave identifiers, code, file paths, URLs and product names untranslated. Keep the
+register of the original, and keep its form of address wherever ${language} can express it
+(informal stays informal, formal stays formal). ${typography}If the draft is already written in
+${language}, return it unchanged.
+Never add or remove a greeting or a sign-off. Never append a section of any kind.`,
+  };
+}
+
 /** Presets shipped with the app. Deliberately generic and free of any employer context. */
 export const BUILT_IN_PRESETS: readonly RewritePreset[] = [
   {
@@ -59,20 +102,6 @@ Reorganise the draft under the headings that actually apply, chosen from: "## Co
 "## Objectif", "## Contraintes", "## Critères d'acceptation". Omit any heading you would
 have to invent content for. Turn run-on sentences into short bullets. Fix typos and
 grammar. Keep it dense: no filler, no restating the obvious.`,
-  },
-  {
-    id: 'translate-en',
-    label: 'Traduire (EN)',
-    hint: 'Anglais technique idiomatique, structure inchangée',
-    kind: 'agent-prompt',
-    systemPrompt: `${CORE_RULES}
-
-${AGENT_PROMPT_RULES}
-
-Preset: TRANSLATE TO ENGLISH.
-Translate the draft into idiomatic technical English. Keep the existing structure,
-headings and bullet order. Do not restructure and do not expand. Leave identifiers,
-code, paths and product names untranslated.`,
   },
   {
     id: 'condense',
@@ -159,6 +188,30 @@ or administrative phrasing, no hedging, no throat-clearing. Keep every technical
 question the draft contains.
 ${REGISTER_RULES}`,
   },
+  // `translate-en` keeps the id it had as an agent-prompt preset, so a `defaultPresetId` or a
+  // per-action model already saved against it still applies.
+  translationPreset({
+    id: 'translate-en',
+    code: 'EN',
+    language: 'English',
+    displayName: 'anglais',
+    typography: '',
+  }),
+  translationPreset({
+    id: 'translate-fr',
+    code: 'FR',
+    language: 'French',
+    displayName: 'français',
+    typography:
+      'Apply French typography: the typographic apostrophe and a non-breaking space before ":", ";", "!" and "?". ',
+  }),
+  translationPreset({
+    id: 'translate-de',
+    code: 'DE',
+    language: 'German',
+    displayName: 'allemand',
+    typography: '',
+  }),
 ] as const;
 
 /**

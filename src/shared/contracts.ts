@@ -9,19 +9,22 @@
 /** Rewrite presets shipped with the app. User presets extend this set by id. */
 export type PresetId =
   | 'structure'
-  | 'translate-en'
   | 'condense'
   | 'spec'
   | 'fix'
   | 'formal'
-  | 'chat';
+  | 'chat'
+  | 'translate-en'
+  | 'translate-fr'
+  | 'translate-de';
 
 /**
  * What a preset *produces*, not what it consumes.
  *
  * `agent-prompt` output is handed to a coding agent, so it is Markdown built around headings,
  * bullets and code fences. `text` output is read by a human, a corrected paragraph or a chat
- * message, where Markdown markers would show up as literal characters.
+ * message, where Markdown markers would show up as literal characters. Translation is `text` too:
+ * it keeps the input's formatting as it is, rather than adding the structure a prompt would get.
  *
  * Neither family ever appends a section the author did not write.
  */
