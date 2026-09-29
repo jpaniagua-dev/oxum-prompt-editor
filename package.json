@@ -19,7 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dist": "npm run build && electron-builder --win",
-    "dist:release": "npm run build && electron-builder --win zip nsis --x64 -c.win.artifactName=oxum-prompt-editor-win-x64.zip -c.nsis.artifactName=oxum-prompt-editor-setup-win-x64.exe",
+    "dist:release": "npm run build && electron-builder --win zip nsis --x64 --publish never -c.win.artifactName=oxum-prompt-editor-win-x64.zip -c.nsis.artifactName=oxum-prompt-editor-setup-win-x64.exe",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

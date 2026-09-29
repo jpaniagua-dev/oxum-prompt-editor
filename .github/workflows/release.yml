@@ -46,7 +46,10 @@ jobs:
       - run: npm run lint
       - run: npm test
       # One build, two assets: the portable zip and the per-user installer. typecheck runs
-      # inside npm run build.
+      # inside npm run build. dist:release passes --publish never: on a tag, electron-builder
+      # otherwise publishes on its own as soon as a target can be published (the installer
+      # can, the zip alone could not) and fails for want of a token. Publishing is the next
+      # step's job.
       - run: npm run dist:release
 
       - name: Publish the one living release
