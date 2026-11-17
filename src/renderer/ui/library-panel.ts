@@ -1,24 +1,14 @@
 import type { LibraryEntry } from '@shared/contracts.js';
 import { createElement } from './dom.js';
-import { formatTimestamp } from './format.js';
 
-/**
- * What a row offers, which is where the two libraries differ.
- *
- * Notes are working documents, so activating one loads it into the editor and replacing it with
- * the draft makes sense. Prompts are reusable material, so activating one copies it to the
- * clipboard and leaves the draft alone, which is the whole point of keeping them apart.
- *
- * `onOverwrite` is nullable rather than optional: with `exactOptionalPropertyTypes`, an absent
- * key and an undefined one are different types, and a null reads the same at both call sites.
- */
-export interface LibraryRowActions {
-  /** What clicking the row does. */
-  readonly onActivate: (entry: LibraryEntry) => void;
-  /** Tooltip on the row, saying what the click will do. */
-  readonly activateHint: string;
-  /** Replace the entry with the current draft, when the library supports it. */
-  readonly onOverwrite: ((entry: LibraryEntry) => void) | null;
+/** What a card offers. */
+export interface LibraryCardActions {
+  /** Load into the editor. Also what a click on the card itself does. */
+  readonly onLoad: (entry: LibraryEntry) => void;
+  /** Copy to the clipboard, leaving the draft alone. */
+  readonly onCopy: (entry: LibraryEntry) => void;
+  /** Replace the entry with the current draft, behind the two-step confirmation below. */
+  readonly onOverwrite: (entry: LibraryEntry) => void;
   /** Delete the entry, behind the two-step confirmation below. */
   readonly onDelete: (entry: LibraryEntry) => void;
 }
@@ -27,21 +17,21 @@ export interface LibraryRowActions {
 const CONFIRM_WINDOW_MS = 4000;
 
 /**
- * Renders one library as a list.
+ * Renders the library as a grid of cards.
  *
- * The whole row is not a single button, unlike the history list: a row carries two or three
- * actions, and nesting buttons inside a button is invalid HTML that browsers resolve
- * unpredictably. The title is the clickable part, the rest sits beside it.
+ * A card is not a single button: it carries four actions, and nesting buttons inside a button is
+ * invalid HTML that browsers resolve unpredictably. The title and preview form the clickable part,
+ * the tools sit below it.
  */
-export function renderLibraryList(
+export function renderLibraryGrid(
   entries: readonly LibraryEntry[],
-  actions: LibraryRowActions,
+  actions: LibraryCardActions,
 ): HTMLElement {
-  const list = createElement('div', { className: 'notes-list' });
+  const grid = createElement('div', { className: 'library-grid' });
   for (const entry of entries) {
-    list.append(libraryRow(entry, actions));
+    grid.append(libraryCard(entry, actions));
   }
-  return list;
+  return grid;
 }
 
 /** Empty state, worded so the way to create the first entry is visible from here. */
@@ -49,41 +39,43 @@ export function renderLibraryEmpty(message: string, directory: string): HTMLElem
   const wrapper = createElement('div', { className: 'history-empty' });
   wrapper.append(
     createElement('p', { text: message }),
-    createElement('p', { className: 'notes-empty__path', text: directory }),
+    createElement('p', { className: 'library-empty__path', text: directory }),
   );
   return wrapper;
 }
 
-function libraryRow(entry: LibraryEntry, actions: LibraryRowActions): HTMLElement {
-  const row = createElement('div', { className: 'note-item' });
+function libraryCard(entry: LibraryEntry, actions: LibraryCardActions): HTMLElement {
+  const card = createElement('div', { className: 'library-card' });
 
-  const activate = createElement('button', {
-    className: 'note-item__open',
-    title: `${actions.activateHint} · ${entry.id}`,
+  const open = createElement('button', {
+    className: 'library-card__open',
+    title: `Charger dans l’éditeur · ${entry.id}`,
   });
-  activate.type = 'button';
-  activate.append(
-    createElement('span', { className: 'note-item__title', text: entry.title }),
-    createElement('span', {
-      className: 'note-item__meta',
-      text: `${formatTimestamp(entry.updatedAt)} · ${entry.size} car.`,
-    }),
-  );
-  activate.addEventListener('click', () => actions.onActivate(entry));
-
-  const tools = createElement('div', { className: 'note-item__tools' });
-  const overwrite = actions.onOverwrite;
-  if (overwrite !== null) {
-    tools.append(
-      confirmButton({
-        label: 'Remplacer',
-        armedLabel: 'Confirmer',
-        title: 'Remplacer le contenu par le brouillon actuel',
-        onConfirm: () => overwrite(entry),
-      }),
-    );
+  open.type = 'button';
+  open.append(createElement('span', { className: 'library-card__title', text: entry.title }));
+  if (entry.excerpt.length > 0) {
+    open.append(createElement('span', { className: 'library-card__excerpt', text: entry.excerpt }));
   }
-  tools.append(
+  open.addEventListener('click', () => actions.onLoad(entry));
+
+  const tools = createElement('div', { className: 'library-card__tools' });
+  const primary = createElement('div', { className: 'library-card__primary' });
+  primary.append(
+    quietButton('Copier', 'Copier dans le presse-papier, sans toucher au brouillon', () =>
+      actions.onCopy(entry),
+    ),
+    quietButton('Charger', 'Charger dans l’éditeur, le brouillon actuel est archivé', () =>
+      actions.onLoad(entry),
+    ),
+  );
+  const secondary = createElement('div', { className: 'library-card__secondary' });
+  secondary.append(
+    confirmButton({
+      label: 'Remplacer',
+      armedLabel: 'Confirmer',
+      title: 'Remplacer le contenu par le brouillon actuel',
+      onConfirm: () => actions.onOverwrite(entry),
+    }),
     confirmButton({
       label: 'Supprimer',
       armedLabel: 'Confirmer',
@@ -91,9 +83,17 @@ function libraryRow(entry: LibraryEntry, actions: LibraryRowActions): HTMLElemen
       onConfirm: () => actions.onDelete(entry),
     }),
   );
+  tools.append(primary, secondary);
 
-  row.append(activate, tools);
-  return row;
+  card.append(open, tools);
+  return card;
+}
+
+function quietButton(label: string, title: string, onClick: () => void): HTMLButtonElement {
+  const button = createElement('button', { className: 'button button--quiet', text: label, title });
+  button.type = 'button';
+  button.addEventListener('click', onClick);
+  return button;
 }
 
 /**
@@ -139,4 +139,3 @@ export function confirmButton(options: {
 
   return button;
 }
-

@@ -9,7 +9,7 @@ export interface PanelButton {
 }
 
 /** What the panel is currently showing. */
-export type PanelMode = 'hidden' | 'rewrite' | 'history' | 'notes' | 'prompts';
+export type PanelMode = 'hidden' | 'rewrite' | 'history' | 'library';
 
 /** One tab of the strip, used when the panel shows something that has siblings. */
 export interface PanelTab {
@@ -24,22 +24,22 @@ export interface SidePanelOptions {
    * Called on every open and close.
    *
    * The toolbar opener has to mirror the panel, and the panel closes from half a dozen places
-   * (Escape, its own close button, applying a rewrite, loading a note). Pushing the mode out
+   * (Escape, its own close button, applying a rewrite, loading an entry). Pushing the mode out
    * from here is the only way the button cannot fall out of step.
    */
   readonly onModeChange: (mode: PanelMode) => void;
 }
 
 /**
- * The single side panel, shared by the rewrite result, the history list and the two libraries.
+ * The single side panel, shared by the rewrite result, the history list and the library.
  *
- * One panel rather than four keeps the popup from ever showing competing columns in a window
+ * One panel rather than three keeps the popup from ever showing competing columns in a window
  * that may only be 820px wide. Settings do not use it: a form with one model field per action
  * needs more than 46% of the width, so it gets its own overlay.
  *
- * The three stores share the panel, so they are mutually exclusive, and that is now said in the
- * shape of the thing: one opener in the toolbar, a tab strip inside. Three separate toolbar
- * buttons for one panel could not express it, and none of them could show that it was active.
+ * The two stores share the panel, so they are mutually exclusive, and that is said in the shape
+ * of the thing: one opener in the toolbar, a tab strip inside. Separate toolbar buttons for one
+ * panel could not express it, and none of them could show that it was active.
  */
 export class SidePanel {
   private readonly root = requireElement<HTMLElement>('side-panel');

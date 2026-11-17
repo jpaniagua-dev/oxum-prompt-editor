@@ -12,6 +12,7 @@ import {
 } from '../src/main/codex/codex-cli.js';
 import {
   DEFAULT_SETTINGS,
+  legacyPromptsDirectory,
   resolveModelForPreset,
   sanitizeSettings,
 } from '../src/main/store/settings-store.js';
@@ -399,20 +400,44 @@ describe('sanitizeSettings', () => {
     );
   });
 
-  it('rejects a relative notes directory rather than resolving it', () => {
+  it('rejects a relative library directory rather than resolving it', () => {
     // A GUI process launched from the Start menu has the Electron binary as its working
-    // directory, so a relative path would put the notes somewhere the user never chose.
-    expect(sanitizeSettings({ notesDirectory: 'mes-notes' }).notesDirectory).toBe('');
-    expect(sanitizeSettings({ notesDirectory: '   ' }).notesDirectory).toBe('');
-    expect(sanitizeSettings({ notesDirectory: 42 }).notesDirectory).toBe('');
+    // directory, so a relative path would put the library somewhere the user never chose.
+    expect(sanitizeSettings({ libraryDirectory: 'mes-notes' }).libraryDirectory).toBe('');
+    expect(sanitizeSettings({ libraryDirectory: '   ' }).libraryDirectory).toBe('');
+    expect(sanitizeSettings({ libraryDirectory: 42 }).libraryDirectory).toBe('');
   });
 
-  it('keeps an absolute notes directory, trimmed', () => {
+  it('keeps an absolute library directory, trimmed', () => {
     const windowsPath = String.raw`C:\Users\moi\Notes`;
-    expect(sanitizeSettings({ notesDirectory: ` ${windowsPath} ` }).notesDirectory).toBe(
+    expect(sanitizeSettings({ libraryDirectory: ` ${windowsPath} ` }).libraryDirectory).toBe(
       windowsPath,
     );
-    expect(sanitizeSettings({ notesDirectory: '/srv/notes' }).notesDirectory).toBe('/srv/notes');
+    expect(sanitizeSettings({ libraryDirectory: '/srv/notes' }).libraryDirectory).toBe(
+      '/srv/notes',
+    );
+  });
+
+  it('carries a notes directory set before the merge over to the library', () => {
+    // The library is the former notes folder, so a file written by an older version keeps it.
+    expect(sanitizeSettings({ notesDirectory: '/srv/notes' }).libraryDirectory).toBe('/srv/notes');
+    expect(
+      sanitizeSettings({ notesDirectory: '/srv/notes', libraryDirectory: '/srv/library' })
+        .libraryDirectory,
+    ).toBe('/srv/library');
+    // An explicit empty value is a choice of the default, not a gap to fill from the old key.
+    expect(
+      sanitizeSettings({ notesDirectory: '/srv/notes', libraryDirectory: '' }).libraryDirectory,
+    ).toBe('');
+  });
+
+  it('reads the pre-merge prompts directory for the migration only', () => {
+    expect(legacyPromptsDirectory({ promptsDirectory: '/srv/prompts' })).toBe('/srv/prompts');
+    expect(legacyPromptsDirectory({ promptsDirectory: 'relatif' })).toBe('');
+    expect(legacyPromptsDirectory(null)).toBe('');
+    expect(sanitizeSettings({ promptsDirectory: '/srv/prompts' })).not.toHaveProperty(
+      'promptsDirectory',
+    );
   });
 
   it('honours an explicit kind on a custom preset', () => {

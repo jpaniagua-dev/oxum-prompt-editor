@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LibraryStore, slugify } from '../src/main/store/library-store.js';
+import { LibraryStore, excerptOf, slugify } from '../src/main/store/library-store.js';
 
 let workDir = '';
 
@@ -43,13 +43,70 @@ describe('slugify', () => {
   });
 });
 
+describe('excerptOf', () => {
+  it('starts after the title, so the preview never repeats it', () => {
+    expect(excerptOf('# Revue de code\n\nTu es un reviewer exigeant.')).toBe(
+      'Tu es un reviewer exigeant.',
+    );
+    // A title that is not a heading is skipped the same way.
+    expect(excerptOf('\n\nSalut à tous,\nla release part demain.')).toBe('la release part demain.');
+  });
+
+  it('flattens lines and drops the Markdown syntax at their start', () => {
+    const text = [
+      '# Titre',
+      '## Contexte',
+      '- un point',
+      '* [x] fait',
+      '1. premier',
+      '> cité',
+      '---',
+      '```ts',
+      'const a = 1;',
+      '```',
+    ].join('\n');
+
+    expect(excerptOf(text)).toBe('Contexte un point fait premier cité const a = 1;');
+  });
+
+  it('reads CRLF text like LF text', () => {
+    expect(excerptOf('# Titre\r\nligne une\r\nligne deux\r\n')).toBe('ligne une ligne deux');
+  });
+
+  it('is empty when there is nothing after the title', () => {
+    expect(excerptOf('# Seulement un titre\n\n')).toBe('');
+    expect(excerptOf('   \n')).toBe('');
+  });
+
+  it('cuts long text with an ellipsis, within the limit', () => {
+    const excerpt = excerptOf(`# Titre\n${'mot '.repeat(200)}`, 40);
+
+    expect(excerpt.length).toBeLessThanOrEqual(40);
+    expect(excerpt.endsWith('…')).toBe(true);
+  });
+});
+
 describe('LibraryStore', () => {
   it('names the file after the first meaningful line', async () => {
     const entry = await storeAt().save('# Revue de code Angular\n\nDes détails.');
 
     expect(entry.id).toBe('revue-de-code-angular.md');
     expect(entry.title).toBe('Revue de code Angular');
+    expect(entry.excerpt).toBe('Des détails.');
     expect(await readdir(workDir)).toEqual(['revue-de-code-angular.md']);
+  });
+
+  it('lists each entry with its preview', async () => {
+    const store = storeAt();
+    await store.save('# Mail équipe\nSalut à tous,\nla release part demain.');
+
+    expect(await store.list()).toEqual([
+      expect.objectContaining({
+        id: 'mail-equipe.md',
+        title: 'Mail équipe',
+        excerpt: 'Salut à tous, la release part demain.',
+      }),
+    ]);
   });
 
   it('reads back byte-identical content', async () => {
@@ -152,34 +209,6 @@ describe('LibraryStore', () => {
     // And the notes in the old folder are untouched, which is what "changing the folder does not
     // move anything" means in practice.
     expect(await readFile(join(workDir, 'a', 'dans-a.md'), 'utf8')).toBe('# Dans A\nx');
-  });
-
-  it('keeps two libraries independent, even on the same class', async () => {
-    // Notes and prompts are the same store pointed at two folders. The property that makes that
-    // safe is that neither ever sees the other's files: saving a prompt must not surface in the
-    // notes list, and deleting one must not reach across.
-    const notes = storeAt(join(workDir, 'notes'));
-    const prompts = storeAt(join(workDir, 'prompts'));
-
-    await notes.save('# Une note\nx');
-    await prompts.save('# Un prompt\nx');
-
-    expect((await notes.list()).map((entry) => entry.id)).toEqual(['une-note.md']);
-    expect((await prompts.list()).map((entry) => entry.id)).toEqual(['un-prompt.md']);
-
-    await prompts.delete('un-prompt.md');
-    expect(await prompts.list()).toEqual([]);
-    expect(await notes.list()).toHaveLength(1);
-  });
-
-  it('lets the same name exist in both libraries', async () => {
-    // No shared namespace: the id is only unique within one folder, so the same title saved in
-    // both places must not collide or suffix.
-    const notes = storeAt(join(workDir, 'notes'));
-    const prompts = storeAt(join(workDir, 'prompts'));
-
-    expect((await notes.save('# Revue de PR\nx')).id).toBe('revue-de-pr.md');
-    expect((await prompts.save('# Revue de PR\ny')).id).toBe('revue-de-pr.md');
   });
 
   // Slow by nature: every save relists the directory to keep names unique, so 300 of them cost

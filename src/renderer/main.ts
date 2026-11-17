@@ -4,7 +4,6 @@ import type {
   ExternalFile,
   HistoryEntry,
   LibraryEntry,
-  LibraryId,
   PresetKind,
   RewriteErrorEvent,
   RewriteEvent,
@@ -34,7 +33,7 @@ import { createElement, requireElement } from './ui/dom.js';
 import { formatTimestamp } from './ui/format.js';
 import { mountFormatBar } from './ui/format-bar.js';
 import { HelpPage } from './ui/help-page.js';
-import { confirmButton, renderLibraryEmpty, renderLibraryList } from './ui/library-panel.js';
+import { confirmButton, renderLibraryEmpty, renderLibraryGrid } from './ui/library-panel.js';
 import { PresetMenu } from './ui/preset-menu.js';
 import { PreviewPane } from './ui/preview-pane.js';
 import { SettingsPage } from './ui/settings-page.js';
@@ -81,16 +80,16 @@ class App {
   private settings: AppSettings | null = null;
   private presets: readonly RewritePreset[] = [];
   private theme: ThemeState = { mode: 'system', resolved: 'light' };
-  /** Default folder per library, for the settings placeholders and the empty panels. */
-  private defaultDirectories: Record<LibraryId, string> = { notes: '', prompts: '' };
-  /** Tab the panel reopens on: it is a place you come back to, and the three are not alike. */
-  private lastLibraryTab: LibraryTab = 'prompts';
+  /** Default library folder, for the settings placeholder and the empty panel. */
+  private defaultLibraryDirectory = '';
+  /** Tab the panel reopens on: it is a place you come back to, and the two are not alike. */
+  private lastLibraryTab: LibraryTab = 'library';
 
   /**
    * The file the buffer was loaded from, or null when it is just the draft.
    *
    * Provenance only, since nothing writes back to it, and dropped by every action that makes the
-   * buffer another document: a new prompt, a note loaded, a snapshot restored. Session state on
+   * buffer another document: a new prompt, an entry loaded, a snapshot restored. Session state on
    * purpose: a path shown after a restart would name a file the buffer may no longer hold.
    */
   private openedFile: ExternalFile | null = null;
@@ -119,7 +118,7 @@ class App {
     const bootstrap = await window.api.bootstrap();
     this.settings = bootstrap.settings;
     this.presets = bootstrap.presets;
-    this.defaultDirectories = { ...bootstrap.defaultDirectories };
+    this.defaultLibraryDirectory = bootstrap.defaultLibraryDirectory;
     // Which build is running has to be answerable without leaving the window: an old
     // instance still in the tray silently swallows the launch of a newer one.
     requireElement<HTMLSpanElement>('status-version').textContent = `v${bootstrap.appVersion}`;
@@ -141,8 +140,7 @@ class App {
         rewriteDefault: () => void this.startRewrite(this.currentPresetId()),
         rewritePick: () => this.presetMenu.open(),
         newDraft: () => void this.newDraft(),
-        toggleLibrary: () => void this.toggleLibraryPanel(),
-        showNotes: () => void this.showLibraryTab('notes'),
+        showLibrary: () => void this.showLibraryTab('library'),
         showHistory: () => void this.showLibraryTab('history'),
         toggleSettings: () => this.toggleSettings(),
         toggleHelp: () => this.toggleHelp(),
@@ -271,7 +269,7 @@ class App {
   /**
    * Replaces the whole document, keeping whatever is on screen in step with it.
    *
-   * Every path that swaps the buffer goes through here. A note can be loaded from the side panel
+   * Every path that swaps the buffer goes through here. An entry can be loaded from the side panel
    * while the preview is showing, and a preview left displaying the previous document would be
    * the one place in the app where the screen lies about what is in the editor.
    */
@@ -296,10 +294,10 @@ class App {
   /**
    * Loads a Markdown file from anywhere on the disk into the buffer.
    *
-   * Same contract as loading a note: the current text is archived first and replaced in a single
-   * transaction, so `Ctrl+Z` brings it back. Reading is the only direction, the file is never
-   * written to, and the buffer becomes a draft like any other: to copy out, or to save to a
-   * library under the app's own name.
+   * Same contract as loading a library entry: the current text is archived first and replaced in
+   * a single transaction, so `Ctrl+Z` brings it back. Reading is the only direction, the file is
+   * never written to, and the buffer becomes a draft like any other: to copy out, or to save to
+   * the library under the app's own name.
    */
   private async openFile(): Promise<void> {
     if (this.editor === null) {
@@ -412,7 +410,7 @@ class App {
     // The format bar and the toolbar act on the draft, which is not what is on screen any more.
     // Hiding them makes the overlay a page rather than a sheet floating over live controls.
     requireElement<HTMLDivElement>('app-root').classList.add('app--settings');
-    this.settingsPage.show(this.settings, this.presets, this.defaultDirectories);
+    this.settingsPage.show(this.settings, this.presets, this.defaultLibraryDirectory);
   }
 
   /** Restores the chrome the settings page hid, whether it was saved or cancelled. */
@@ -475,8 +473,7 @@ class App {
       rewriteProvider: next.rewriteProvider,
       claude: next.claude,
       codex: next.codex,
-      notesDirectory: next.notesDirectory,
-      promptsDirectory: next.promptsDirectory,
+      libraryDirectory: next.libraryDirectory,
     });
 
     if (previous?.themeMode !== next.themeMode) {
@@ -516,8 +513,8 @@ class App {
   /**
    * Opens or closes the library panel.
    *
-   * The three stores share one panel, so one opener is enough and three were unable to say which
-   * of them was active. Reopening lands on the last tab used rather than always the first.
+   * The library and the history share one panel, so one opener is enough. Reopening lands on the
+   * last tab used rather than always the first.
    */
   private async toggleLibraryPanel(): Promise<void> {
     if (isLibraryTab(this.panel.currentMode)) {
@@ -545,7 +542,7 @@ class App {
       await this.openHistory();
       return;
     }
-    await this.openLibrary(tab);
+    await this.openLibrary();
   }
 
   /** Redraws the strip. The panel derives the selected tab from its own mode. */
@@ -568,42 +565,40 @@ class App {
   }
 
   /**
-   * Shows one library.
+   * Shows the library.
    *
-   * The two differ only in what a row does. A note is a working document, so it is loaded into
-   * the editor; a prompt is reusable material, so it is copied to the clipboard and the draft is
-   * left alone, which is the reason the two are kept in separate folders at all.
+   * Every entry offers both ways out: loading it into the editor, which archives the draft first,
+   * and copying it, which leaves the draft alone so a frequently reused text costs nothing.
    */
-  private async openLibrary(library: LibraryId): Promise<void> {
-    const spec = LIBRARIES[library];
-    const entries = await window.api.listLibrary(library);
-    this.panel.open(library, `${spec.title} · ${entries.length}`);
+  private async openLibrary(): Promise<void> {
+    const entries = await window.api.listLibrary();
+    this.panel.open('library', `Bibliothèque · ${entries.length}`);
     this.renderLibraryTabs();
 
     this.panel.setContent(
       entries.length === 0
-        ? renderLibraryEmpty(spec.empty, this.directoryOf(library))
-        : renderLibraryList(entries, {
-            onActivate: (entry) => void this.activateEntry(library, entry),
-            activateHint: spec.activateHint,
-            // Replacing an entry with the draft makes sense for a working document, not for a
-            // prompt that is copied out and never loaded in.
-            onOverwrite:
-              library === 'notes' ? (entry) => void this.overwriteEntry(library, entry) : null,
-            onDelete: (entry) => void this.deleteEntry(library, entry),
+        ? renderLibraryEmpty(
+            'Bibliothèque vide. « Enregistrer le brouillon » y range le texte en cours, nommé d’après sa première ligne.',
+            this.libraryDirectory(),
+          )
+        : renderLibraryGrid(entries, {
+            onLoad: (entry) => void this.loadEntry(entry),
+            onCopy: (entry) => void this.copyEntry(entry),
+            onOverwrite: (entry) => void this.overwriteEntry(entry),
+            onDelete: (entry) => void this.deleteEntry(entry),
           }),
     );
     this.panel.setActions([
       {
-        label: spec.saveLabel,
+        label: 'Enregistrer le brouillon',
         variant: 'primary',
         title: 'Nommé d’après la première ligne du brouillon',
-        onClick: () => void this.saveDraftTo(library),
+        onClick: () => void this.saveDraft(),
       },
     ]);
   }
 
-  private async saveDraftTo(library: LibraryId): Promise<void> {
+  private async saveDraft(): Promise<void> {
     if (this.editor === null) {
       return;
     }
@@ -613,51 +608,43 @@ class App {
       return;
     }
     try {
-      const entry = await window.api.saveToLibrary(library, text);
-      await this.openLibrary(library);
+      const entry = await window.api.saveToLibrary(text);
+      await this.openLibrary();
       this.toast.show(`Enregistré : ${entry.id}`);
     } catch (error) {
       this.toast.error(`enregistrement impossible: ${describeError(error)}`);
     }
   }
 
-  private async activateEntry(library: LibraryId, entry: LibraryEntry): Promise<void> {
-    if (library === 'prompts') {
-      await this.copyEntry(entry);
-      return;
-    }
-    await this.loadEntry(entry);
-  }
-
   /**
-   * Copies a prompt to the clipboard.
+   * Copies an entry to the clipboard.
    *
-   * Deliberately does not touch the draft: grabbing a frequently used prompt should not cost
+   * Deliberately does not touch the draft: grabbing a frequently used text should not cost
    * whatever is currently being written. The panel stays open, so several can be taken in a row.
    */
   private async copyEntry(entry: LibraryEntry): Promise<void> {
     try {
-      const text = await window.api.readLibraryEntry('prompts', entry.id);
+      const text = await window.api.readLibraryEntry(entry.id);
       await window.api.writeClipboard(text);
-      this.toast.show('Prompt copié, collez avec Ctrl+V');
+      this.toast.show('Copié, collez avec Ctrl+V');
     } catch (error) {
       this.toast.error(`lecture impossible: ${describeError(error)}`);
     }
   }
 
   /**
-   * Loads a note into the editor.
+   * Loads an entry into the editor.
    *
    * Same contract as restoring a snapshot: the draft is archived first, then replaced in a single
-   * transaction, so one `Ctrl+Z` brings it back. Notes are a library, not a second live buffer,
-   * so nothing binds the editor to the note afterwards.
+   * transaction, so one `Ctrl+Z` brings it back. The library is not a second live buffer, so
+   * nothing binds the editor to the entry afterwards.
    */
   private async loadEntry(entry: LibraryEntry): Promise<void> {
     if (this.editor === null) {
       return;
     }
     try {
-      const text = await window.api.readLibraryEntry('notes', entry.id);
+      const text = await window.api.readLibraryEntry(entry.id);
       const current = getText(this.editor);
       if (current.trim().length > 0) {
         await window.api.snapshotDraft(current, 'restore');
@@ -666,13 +653,13 @@ class App {
       this.bindFile(null);
       this.panel.close();
       this.editor.focus();
-      this.toast.show('Note chargée · Ctrl+Z pour revenir');
+      this.toast.show('Chargé · Ctrl+Z pour revenir');
     } catch (error) {
       this.toast.error(`lecture impossible: ${describeError(error)}`);
     }
   }
 
-  private async overwriteEntry(library: LibraryId, entry: LibraryEntry): Promise<void> {
+  private async overwriteEntry(entry: LibraryEntry): Promise<void> {
     if (this.editor === null) {
       return;
     }
@@ -682,31 +669,28 @@ class App {
       return;
     }
     try {
-      await window.api.overwriteLibraryEntry(library, entry.id, text);
-      await this.openLibrary(library);
+      await window.api.overwriteLibraryEntry(entry.id, text);
+      await this.openLibrary();
       this.toast.show('Contenu remplacé');
     } catch (error) {
       this.toast.error(`écriture impossible: ${describeError(error)}`);
     }
   }
 
-  private async deleteEntry(library: LibraryId, entry: LibraryEntry): Promise<void> {
+  private async deleteEntry(entry: LibraryEntry): Promise<void> {
     try {
-      await window.api.deleteLibraryEntry(library, entry.id);
-      await this.openLibrary(library);
+      await window.api.deleteLibraryEntry(entry.id);
+      await this.openLibrary();
       this.toast.show('Supprimé');
     } catch (error) {
       this.toast.error(`suppression impossible: ${describeError(error)}`);
     }
   }
 
-  /** The folder a library actually uses, for the empty state. */
-  private directoryOf(library: LibraryId): string {
-    const configured =
-      library === 'notes'
-        ? (this.settings?.notesDirectory.trim() ?? '')
-        : (this.settings?.promptsDirectory.trim() ?? '');
-    return configured.length > 0 ? configured : this.defaultDirectories[library];
+  /** The folder the library actually uses, for the empty state. */
+  private libraryDirectory(): string {
+    const configured = this.settings?.libraryDirectory.trim() ?? '';
+    return configured.length > 0 ? configured : this.defaultLibraryDirectory;
   }
 
   /* ------------------------------------------------------------ persistence */
@@ -1085,7 +1069,7 @@ class App {
         label: 'Tout supprimer',
         armedLabel: `Confirmer (${entries.length})`,
         title:
-          'Supprime tous les instantanés. Le brouillon en cours et les notes ne sont pas touchés.',
+          'Supprime tous les instantanés. Le brouillon en cours et la bibliothèque ne sont pas touchés.',
         onConfirm: () => void this.clearHistory(),
       }),
     );
@@ -1095,7 +1079,7 @@ class App {
    * Empties the snapshot archive.
    *
    * Safe to offer because snapshots are the disposable copy: the draft itself is untouched, and
-   * anything worth keeping belongs in a note. Two clicks are required, in the button itself.
+   * anything worth keeping belongs in the library. Two clicks are required, in the button itself.
    */
   private async clearHistory(): Promise<void> {
     try {
@@ -1208,48 +1192,20 @@ class App {
   }
 }
 
-/**
- * How each library presents itself.
- *
- * Wording is the only real difference between the two, so it lives in one table rather than being
- * threaded through the render path as arguments.
- */
-const LIBRARIES: Readonly<
-  Record<LibraryId, { title: string; empty: string; saveLabel: string; activateHint: string }>
-> = {
-  notes: {
-    title: 'Notes',
-    empty:
-      'Aucune note. « Enregistrer le brouillon » en crée une, nommée d’après sa première ligne.',
-    saveLabel: 'Enregistrer le brouillon',
-    activateHint: 'Charger dans l’éditeur',
-  },
-  prompts: {
-    title: 'Prompts',
-    empty:
-      'Aucun prompt enregistré. « Enregistrer le brouillon » le range ici, pour le recopier ensuite en un clic.',
-    // Same label in both tabs: what is saved is always the draft, and the active tab already
-    // says where it lands. Two different verbs for one buffer only invited the question.
-    saveLabel: 'Enregistrer le brouillon',
-    activateHint: 'Copier dans le presse-papier',
-  },
-};
+/** The two stores sharing the side panel, in tab order. */
+type LibraryTab = 'library' | 'history';
 
-/** The three stores sharing the side panel, in tab order. */
-type LibraryTab = LibraryId | 'history';
-
-const LIBRARY_TABS: readonly LibraryTab[] = ['prompts', 'notes', 'history'];
+const LIBRARY_TABS: readonly LibraryTab[] = ['library', 'history'];
 
 /** Tab labels. The panel header repeats the active one, with its count. */
 const TAB_LABELS: Readonly<Record<LibraryTab, string>> = {
-  prompts: 'Prompts',
-  notes: 'Notes',
+  library: 'Bibliothèque',
   history: 'Historique',
 };
 
 /** Narrows a panel mode to a library tab, for the opener state and the toggles. */
 function isLibraryTab(mode: PanelMode): mode is LibraryTab {
-  return mode === 'prompts' || mode === 'notes' || mode === 'history';
+  return mode === 'library' || mode === 'history';
 }
 
 /**

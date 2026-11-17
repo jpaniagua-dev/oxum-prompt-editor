@@ -13,6 +13,7 @@ import { registerGlobalShortcut, shortcutLabel, unregisterGlobalShortcuts } from
 import { DraftStore } from './store/draft-store.js';
 import { FileStore } from './store/file-store.js';
 import { HistoryStore } from './store/history-store.js';
+import { mergeLibraryFolder } from './store/library-migration.js';
 import { LibraryStore } from './store/library-store.js';
 import { AppPaths } from './store/paths.js';
 import { SettingsStore } from './store/settings-store.js';
@@ -74,17 +75,21 @@ async function bootstrap(): Promise<void> {
   const historyStore = new HistoryStore(AppPaths.historyDir());
   history = historyStore;
 
-  // One store per library, each resolving its directory on every access rather than capturing
-  // it: the directories are settings, and a store holding the old path would keep writing where
-  // the UI no longer looks.
-  const libraries = {
-    notes: new LibraryStore(() =>
-      resolveDirectory(settingsStore.get().notesDirectory, AppPaths.defaultNotesDir()),
-    ),
-    prompts: new LibraryStore(() =>
-      resolveDirectory(settingsStore.get().promptsDirectory, AppPaths.defaultPromptsDir()),
-    ),
-  } as const;
+  // Resolves its directory on every access rather than capturing it: the directory is a setting,
+  // and a store holding the old path would keep writing where the UI no longer looks.
+  const libraryDirectory = (): string =>
+    resolveDirectory(settingsStore.get().libraryDirectory, AppPaths.defaultLibraryDir());
+  const library = new LibraryStore(libraryDirectory);
+
+  // Notes and prompts used to be two folders. The prompts are moved into the library before the
+  // renderer can list it, so the first panel it opens already shows everything.
+  const merged = await mergeLibraryFolder(
+    resolveDirectory(settingsStore.legacyPromptsDirectory, AppPaths.legacyPromptsDir()),
+    libraryDirectory(),
+  );
+  if (merged.moved > 0 || merged.failed > 0) {
+    console.info('[library-migration] prompts merged into the library', merged);
+  }
   // Files the user opens from outside the app's own folders. Instantiated before the window
   // because the dialog it drives needs to be parented to it, which the closure below does lazily.
   const fileStore = new FileStore({
@@ -116,16 +121,13 @@ async function bootstrap(): Promise<void> {
   registerIpcHandlers({
     drafts: draftStore,
     history: historyStore,
-    libraries,
+    library,
     files: fileStore,
     settings: settingsStore,
     rewrites: rewriteService,
     theme: themeController,
     recovered: () => recovered,
-    defaultDirectories: () => ({
-      notes: AppPaths.defaultNotesDir(),
-      prompts: AppPaths.defaultPromptsDir(),
-    }),
+    defaultLibraryDirectory: () => AppPaths.defaultLibraryDir(),
     pickDirectory: (current) => pickDirectory(popupWindow.browserWindow, current),
     hideWindow: () => popupWindow.hide(),
     quit: () => void quit(),
@@ -183,7 +185,7 @@ function resolveDirectory(configured: string, fallback: string): string {
 }
 
 /**
- * Native folder picker for the notes directory.
+ * Native folder picker for the library directory.
  *
  * Modal to the popup on purpose: a sheet the user can lose behind an always-on-top window is
  * worse than one that blocks it, and the picker is short-lived.

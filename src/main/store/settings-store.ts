@@ -39,8 +39,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Empty means "the default directory under userData", resolved by the caller. Storing the
   // resolved path instead would freeze it, and it moves with the Electron user data directory
   // (a dev run uses its own).
-  notesDirectory: '',
-  promptsDirectory: '',
+  libraryDirectory: '',
   customPresets: [],
 };
 
@@ -54,6 +53,7 @@ export const DEFAULT_BOUNDS: WindowBounds = { x: -1, y: -1, width: 820, height: 
  */
 export class SettingsStore {
   private cache: AppSettings = freshDefaults();
+  private legacyPrompts = '';
 
   constructor(private readonly filePath: string) {}
 
@@ -64,6 +64,7 @@ export class SettingsStore {
     try {
       const raw: unknown = JSON.parse(await readFile(this.filePath, 'utf8'));
       this.cache = sanitizeSettings(raw);
+      this.legacyPrompts = legacyPromptsDirectory(raw);
     } catch (error) {
       console.error('[settings-store] unreadable settings, using defaults', error);
     }
@@ -72,6 +73,16 @@ export class SettingsStore {
 
   get(): AppSettings {
     return this.cache;
+  }
+
+  /**
+   * The prompts folder configured before the two libraries were merged, or `''` when none was.
+   *
+   * Only read by the startup migration. It is not part of `AppSettings`, so the next save drops
+   * it from the file, which is fine once its documents have been moved.
+   */
+  get legacyPromptsDirectory(): string {
+    return this.legacyPrompts;
   }
 
   /** Merges a patch into the settings and persists the result. */
@@ -130,10 +141,20 @@ export function sanitizeSettings(raw: unknown): AppSettings {
     },
     defaultPresetId: asString(input.defaultPresetId, DEFAULT_SETTINGS.defaultPresetId),
     showFormatBar: asBoolean(input.showFormatBar, DEFAULT_SETTINGS.showFormatBar),
-    notesDirectory: asAbsolutePath(input.notesDirectory),
-    promptsDirectory: asAbsolutePath(input.promptsDirectory),
+    // The library is the former notes folder, so a notes folder set before the merge carries over.
+    libraryDirectory: asAbsolutePath(
+      input.libraryDirectory === undefined ? input.notesDirectory : input.libraryDirectory,
+    ),
     customPresets: asPresets(input.customPresets),
   };
+}
+
+/** Reads the pre-merge `promptsDirectory` key from a raw settings file. Exported for testing. */
+export function legacyPromptsDirectory(raw: unknown): string {
+  if (typeof raw !== 'object' || raw === null) {
+    return '';
+  }
+  return asAbsolutePath((raw as Record<string, unknown>).promptsDirectory);
 }
 
 /**

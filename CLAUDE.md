@@ -3,7 +3,7 @@
 Éditeur Markdown en popup Windows (Electron + TypeScript strict + CodeMirror 6), né pour écrire
 des prompts et devenu un outil d'édition rapide : corriger, traduire, changer de registre, puis
 coller le résultat ailleurs. Le vocabulaire de l'UI suit cet usage (« brouillon », pas « prompt »),
-sauf là où il s'agit vraiment d'un prompt (famille `agent-prompt`, bibliothèque de prompts).
+sauf là où il s'agit vraiment d'un prompt (famille `agent-prompt`).
 
 ## Invariant central : le texte de l'utilisateur ne se perd jamais
 
@@ -21,8 +21,8 @@ préserver ces propriétés :
 - **Toute action qui remplace ou vide le buffer archive d'abord** un instantané via
   `snapshotDraft`. Cela concerne `Nouveau`, `Appliquer` une réécriture (y compris
   `Remplacer la sélection`, qui archive le brouillon entier), `restaurer` un instantané et
-  **charger une note**. Copier un prompt de la bibliothèque ne touche pas au buffer, donc n'a rien
-  à archiver.
+  **charger une entrée de la bibliothèque**. `Copier` une entrée ne touche pas au buffer, donc n'a
+  rien à archiver.
 - **Un remplacement de document se fait en une seule transaction CodeMirror** (`replaceAll`, ou
   `replaceRange` pour une sélection), pour qu'un unique `Ctrl+Z` le défasse. Les deux mesurent le
   texte **converti** par `toText`, jamais la chaîne brute (voir le piège CRLF plus bas).
@@ -57,32 +57,52 @@ pratique.
   jetables : pruning à 200 et purge explicite (`clear()`). `LibraryStore` ne prune **jamais** et ne
   supprime que sur demande, une entrée à la fois : elle a été créée exprès. Inverser ces deux
   régimes serait la perte de données que l'app existe pour empêcher.
-- **`LibraryStore` sert deux bibliothèques**, `notes` et `prompts` (`LibraryId`), par deux
-  instances sur deux dossiers. La classe ignore laquelle elle sert : la différence est dans le
-  panneau. Une note se **charge dans l'éditeur** (donc snapshot du brouillon d'abord), un prompt se
-  **copie dans le presse-papier** sans toucher au brouillon. C'est précisément ce qui justifie deux
-  dossiers plutôt qu'un : prendre un prompt fréquent ne doit rien coûter à ce qu'on est en train
-  d'écrire.
-- **Les canaux `library:*` prennent un `LibraryId` en premier argument.** Un discriminant typé vaut
-  mieux que cinq canaux de plus, et ce n'est pas un canal générique : `libraryOf()` le résout
-  contre une table fixe de stores côté main, donc le renderer ne nomme jamais une destination
-  arbitraire.
-- **Les dossiers des bibliothèques sont configurables**, donc résolus par un `() => string` à
-  chaque appel et pas figés au constructeur. Deux conséquences : `DOCUMENT_ID_PATTERN` est la seule
+- **La bibliothèque est une seule collection, sans distinction note/prompt.** Une instance de
+  `LibraryStore`, un dossier, et chaque carte offre les deux sorties : **Charger** (le clic sur la
+  carte : snapshot du brouillon puis remplacement) et **Copier** (presse-papier, brouillon
+  intact, panneau laissé ouvert). Jusqu'à la 0.11, notes et prompts vivaient dans deux dossiers et
+  ne différaient que par le clic ; la fusion a été demandée, ne pas réintroduire de type d'entrée
+  pour retrouver cette différence.
+- **Une carte montre un titre et un aperçu, jamais de date.** `excerptOf`
+  (`src/main/store/library-store.ts`, testé) est calculé côté main sur le texte que `list()` lit
+  déjà : il saute la ligne de titre (même règle que `firstMeaningfulLine`), retire les marqueurs
+  Markdown de début de ligne, les clôtures de code et les filets, et tronque à 240 caractères ; le
+  CSS borne l'affichage à trois lignes. `updatedAt` reste dans le contrat parce qu'il ordonne la
+  liste. L'Historique, lui, garde ses dates : pour un instantané, c'est l'information utile.
+- **Le dossier de la bibliothèque est l'ancien dossier des notes** (`userData\notes` par défaut,
+  réglage `libraryDirectory`, qui reprend un `notesDirectory` antérieur). Le nom `notes` sur disque
+  est volontaire : renommer le dossier déplacerait toutes les notes pour un gain cosmétique.
+- **Les prompts de l'ancien dossier sont absorbés au démarrage** par `mergeLibraryFolder`
+  (`src/main/store/library-migration.ts`, testé), avant l'enregistrement des handlers IPC. C'est
+  le seul déplacement de fichiers de l'app, donc il porte ses propres garanties, à ne pas
+  simplifier :
+  - copie (`atomicWriteFile`), relecture et comparaison, et suppression de la source **seulement**
+    si la copie est identique : à aucun instant un document n'existe nulle part ;
+  - un fichier de même radical au contenu identique compte comme déjà copié, ce qui rend la
+    migration rejouable sans doublon après un crash entre l'écriture et la suppression ;
+  - ⚠️ **no-op si source et cible sont le même dossier** (`realpath`, insensible à la casse sous
+    Windows) : sans cette garde, la règle précédente supprimerait l'unique copie de chaque
+    fichier ;
+  - la copie garde le `mtime` de la source, sinon tous les prompts migrés passeraient en tête ;
+  - un échec laisse le fichier en place et la migration ne lève jamais : l'app doit démarrer.
+  L'ancien `promptsDirectory` n'est lu qu'au chargement (`legacyPromptsDirectory`) et disparaît du
+  fichier au prochain enregistrement des réglages.
+- **Le dossier de la bibliothèque est configurable**, donc résolu par un `() => string` à chaque
+  appel et pas figé au constructeur. Deux conséquences : `DOCUMENT_ID_PATTERN` est la seule
   barrière contre la traversée de chemin dans un dossier qui peut être n'importe où, et changer le
   réglage **ne déplace pas** les fichiers existants (un déplacement raté à mi-course est exactement
-  le risque qu'on refuse).
+  le risque qu'on refuse ; la migration ci-dessus est l'exception, encadrée).
 - **Un fichier ouvert du disque est en lecture seule, et le rester est une décision.**
   `FileStore` (`src/main/store/file-store.ts`) n'a qu'une méthode, `open`, et l'app n'expose aucun
   canal d'écriture externe : `Ctrl+S` n'existe pas. Ce que l'app produit est du texte à coller
-  ailleurs, déjà persisté dans trois endroits qu'elle possède (le brouillon autosauvé, les notes,
-  les prompts), donc un fichier ouvert est une **entrée** dans ce flux, pas une destination.
+  ailleurs, déjà persisté dans deux endroits qu'elle possède (le brouillon autosauvé et la
+  bibliothèque), donc un fichier ouvert est une **entrée** dans ce flux, pas une destination.
   Réintroduire l'écriture ne coûte pas une méthode : il faudrait de nouveau mémoriser les chemins
   absolus autorisés par un dialogue natif (aucun motif ne distingue un chemin légitime de
   `C:\Windows\System32\drivers\etc\hosts`), ne pas les persister d'une exécution à l'autre, et
   restaurer le newline d'origine à l'écriture. C'était le cas jusqu'au 2026-09-04, retiré exprès.
   Un test vérifie que la classe n'a pas de méthode d'écriture ; pour garder un document ouvert, on
-  l'enregistre dans les notes.
+  l'enregistre dans la bibliothèque.
 - **CodeMirror normalise toute fin de ligne en `\n` au chargement**, ce qui n'a plus de
   conséquence à l'écriture (rien n'est réécrit) mais en garde une au chargement : `replaceAll` doit
   mesurer le **texte converti**, pas la chaîne brute, sinon l'ancre tombe hors document sur du CRLF
@@ -195,10 +215,12 @@ Ces points ont coûté du temps à diagnostiquer, ne pas les réintroduire :
   suisse romand, `Ctrl+Shift+7` arrive en `Ctrl+/` et déclenche le basculement de commentaire.
   Les chiffres sans `Shift` (`Ctrl+1..3`) sont stables.
 - **`Ctrl+Shift+O` n'atteint jamais le renderer** : Chromium le garde pour ses favoris.
-- **`Ctrl+,`, `Ctrl+M` et `Ctrl+L`** (réglages, notes, bibliothèque) : la virgule est non shiftée
-  sur un clavier suisse romand, et aucun des trois n'est réservé par `defaultKeymap`,
-  `searchKeymap` ni `historyKeymap`. ⚠️ `Ctrl+L` reste le moins sûr des trois, Chromium l'utilisant
-  pour la barre d'adresse dans un vrai navigateur : à revérifier si le panneau ne s'ouvre pas.
+- **`Ctrl+,`, `Ctrl+L` et `Ctrl+H`** (réglages, bibliothèque, historique) : la virgule est non
+  shiftée sur un clavier suisse romand, et aucun des trois n'est réservé par `defaultKeymap`,
+  `searchKeymap` ni `historyKeymap`. Chaque touche ouvre son onglet, ou ferme le panneau s'il est
+  déjà affiché ; seul le bouton de la barre d'outils rouvre le dernier onglet. ⚠️ `Ctrl+L` reste le
+  moins sûr des trois, Chromium l'utilisant pour la barre d'adresse dans un vrai navigateur : à
+  revérifier si le panneau ne s'ouvre pas.
 - **`F1` plutôt qu'une combinaison `Mod-`** pour l'aide : c'est la seule touche d'aide sur laquelle
   tous les logiciels Windows s'accordent, aucune disposition ne la déforme, et ni `defaultKeymap`
   ni `searchKeymap` ne la réserve. Elle est câblée deux fois, dans le keymap **et** dans le
@@ -257,8 +279,8 @@ silence :
   sont tout l'intérêt de n'avoir qu'une release.
 - **La désinstallation ne touche jamais à `userData`** (`deleteAppDataOnUninstall: false`, écrit
   en toutes lettres bien que ce soit le défaut). C'est là que vivent le brouillon, l'historique et
-  les dossiers par défaut des notes et des prompts : l'activer ferait de « désinstaller » la perte
-  de données que l'app existe pour empêcher.
+  le dossier par défaut de la bibliothèque : l'activer ferait de « désinstaller » la perte de
+  données que l'app existe pour empêcher.
 
 ⚠️ `test/library-store.test.ts` porte un `timeout` explicite de 30 s sur « never prunes ». Ce
 n'est pas une verrue : le test écrit 300 documents et chaque `save()` reliste le dossier pour

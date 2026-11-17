@@ -19,8 +19,7 @@ export type AppCommandId =
   | 'rewriteDefault'
   | 'rewritePick'
   | 'newDraft'
-  | 'toggleLibrary'
-  | 'showNotes'
+  | 'showLibrary'
   | 'showHistory'
   | 'toggleSettings'
   | 'toggleHelp'
@@ -56,11 +55,10 @@ export const APP_SHORTCUTS: readonly Shortcut<AppCommandId>[] = [
     command: 'rewritePick',
   },
   { key: 'Mod-n', label: 'Nouveau brouillon (l’actuel est archivé)', command: 'newDraft' },
-  // `Mod-l` opens the panel itself; the other two land straight on a tab, so the direct access
-  // the three separate toolbar buttons used to give is not lost with them.
-  { key: 'Mod-l', label: 'Bibliothèque, sur le dernier onglet ouvert', command: 'toggleLibrary' },
+  // One key per tab of the side panel, each closing it when its tab is already showing. The
+  // toolbar opener is the one that remembers the last tab.
+  { key: 'Mod-l', label: 'Bibliothèque', command: 'showLibrary' },
   { key: 'Mod-h', label: 'Historique des instantanés', command: 'showHistory' },
-  { key: 'Mod-m', label: 'Notes', command: 'showNotes' },
   // `Mod-,` rather than a digit: the comma is unshifted on a Swiss/French layout, so it does not
   // go through the same mangling that makes `Ctrl+Shift+7` arrive as `Ctrl+/`.
   { key: 'Mod-,', label: 'Réglages', command: 'toggleSettings' },

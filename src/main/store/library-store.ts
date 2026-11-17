@@ -16,13 +16,10 @@ import { firstMeaningfulLine } from './history-store.js';
  * fit this shape. That is the intended trade: pointing the setting at an existing folder must not
  * make the app claim everything in it.
  */
-const DOCUMENT_ID_PATTERN = /^[a-z0-9][a-z0-9-]*\.md$/;
+export const DOCUMENT_ID_PATTERN = /^[a-z0-9][a-z0-9-]*\.md$/;
 
 /**
  * A folder of Markdown documents the user deliberately kept, under names they can read.
- *
- * Instantiated once per library (see `LibraryId`): the notes they write, and the prompts they
- * reuse. Same mechanics, different folders, so the class carries no idea of which one it serves.
  *
  * Two properties separate it from `HistoryStore`, and both are load-bearing:
  *
@@ -86,8 +83,8 @@ export class LibraryStore {
           return {
             id: name,
             title: firstMeaningfulLine(text),
+            excerpt: excerptOf(text),
             updatedAt: stats.mtime.toISOString(),
-            size: text.length,
           };
         } catch {
           return null;
@@ -134,8 +131,8 @@ export class LibraryStore {
     return {
       id,
       title: firstMeaningfulLine(text),
+      excerpt: excerptOf(text),
       updatedAt: new Date().toISOString(),
-      size: text.length,
     };
   }
 }
@@ -164,7 +161,7 @@ export function slugify(title: string, maxLength = 60): string {
 }
 
 /** Appends `-2`, `-3`, … until the name is free, so saving twice never overwrites. */
-function uniqueId(stem: string, taken: ReadonlySet<string>): string {
+export function uniqueId(stem: string, taken: ReadonlySet<string>): string {
   if (!taken.has(`${stem}.md`)) {
     return `${stem}.md`;
   }
@@ -174,4 +171,29 @@ function uniqueId(stem: string, taken: ReadonlySet<string>): string {
       return candidate;
     }
   }
+}
+
+/**
+ * The text after the title, as one line, for the card preview.
+ *
+ * Line-start Markdown markers, code fences and rules are dropped because they would spend the few
+ * characters a preview has on syntax. The title line is skipped with the same rule as
+ * `firstMeaningfulLine`, so the preview never repeats the heading shown above it.
+ */
+export function excerptOf(text: string, maxLength = 240): string {
+  const lines = text.split('\n').map((line) => line.trim());
+  const titleIndex = lines.findIndex((line) => line.replace(/^#{1,6}\s*/, '').length > 0);
+  if (titleIndex === -1) {
+    return '';
+  }
+
+  const body = lines
+    .slice(titleIndex + 1)
+    .filter((line) => !/^(?:```|~~~)/.test(line) && !/^(?:[-*_]\s*){3,}$/.test(line))
+    .map((line) => line.replace(/^(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)+/, ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return body.length > maxLength ? `${body.slice(0, maxLength - 1).trimEnd()}…` : body;
 }

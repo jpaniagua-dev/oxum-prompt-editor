@@ -5,7 +5,6 @@ import {
   type BootstrapState,
   type HistoryEntry,
   type LibraryEntry,
-  type LibraryId,
   type OpenedFile,
   type RendererApi,
   type RewriteEvent,
@@ -37,20 +36,18 @@ const api: RendererApi = {
 
   clearHistory: (): Promise<number> => ipcRenderer.invoke(IpcChannel.HistoryClear),
 
-  listLibrary: (library: LibraryId): Promise<LibraryEntry[]> =>
-    ipcRenderer.invoke(IpcChannel.LibraryList, library),
+  listLibrary: (): Promise<LibraryEntry[]> => ipcRenderer.invoke(IpcChannel.LibraryList),
 
-  readLibraryEntry: (library: LibraryId, id: string): Promise<string> =>
-    ipcRenderer.invoke(IpcChannel.LibraryRead, library, id),
+  readLibraryEntry: (id: string): Promise<string> => ipcRenderer.invoke(IpcChannel.LibraryRead, id),
 
-  saveToLibrary: (library: LibraryId, text: string): Promise<LibraryEntry> =>
-    ipcRenderer.invoke(IpcChannel.LibrarySave, library, text),
+  saveToLibrary: (text: string): Promise<LibraryEntry> =>
+    ipcRenderer.invoke(IpcChannel.LibrarySave, text),
 
-  overwriteLibraryEntry: (library: LibraryId, id: string, text: string): Promise<LibraryEntry> =>
-    ipcRenderer.invoke(IpcChannel.LibraryOverwrite, library, id, text),
+  overwriteLibraryEntry: (id: string, text: string): Promise<LibraryEntry> =>
+    ipcRenderer.invoke(IpcChannel.LibraryOverwrite, id, text),
 
-  deleteLibraryEntry: (library: LibraryId, id: string): Promise<void> =>
-    ipcRenderer.invoke(IpcChannel.LibraryDelete, library, id),
+  deleteLibraryEntry: (id: string): Promise<void> =>
+    ipcRenderer.invoke(IpcChannel.LibraryDelete, id),
 
   openFile: (): Promise<OpenedFile | null> => ipcRenderer.invoke(IpcChannel.FileOpen),
 

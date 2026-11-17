@@ -115,15 +115,13 @@ export interface AppSettings {
   /** Show the Markdown formatting bar. Its shortcuts keep working while it is hidden. */
   showFormatBar: boolean;
   /**
-   * Absolute directory holding the notes. Empty means the default under `userData`.
+   * Absolute directory holding the library. Empty means the default under `userData`.
    *
    * Configurable because saved Markdown is worth syncing or versioning, which `%APPDATA%` is not
    * the place for. A relative path is rejected in favour of the default rather than resolved
    * against an ambiguous working directory.
    */
-  notesDirectory: string;
-  /** Absolute directory holding the prompt library. Same rules as `notesDirectory`. */
-  promptsDirectory: string;
+  libraryDirectory: string;
   /** User-defined or overridden presets, merged over the built-ins by id. */
   customPresets: RewritePreset[];
 }
@@ -153,17 +151,7 @@ export interface HistoryEntry {
 export type SnapshotReason = 'copy' | 'new' | 'rewrite' | 'restore' | 'quit' | 'manual';
 
 /**
- * The two folders of saved Markdown, kept apart because they answer different needs.
- *
- * `notes` holds working documents: saved, reopened in the editor, worked on again. `prompts` holds
- * the reusable collection, which is copied to the clipboard rather than loaded, so grabbing one
- * never costs whatever is currently in the editor. Same storage mechanics, different folders and
- * different actions in the panel.
- */
-export type LibraryId = 'notes' | 'prompts';
-
-/**
- * One saved document, in either library.
+ * One saved document in the library.
  *
  * Unlike a {@link HistoryEntry}, it is deliberate: the user asked for it, it is named after its
  * own first line, and it is expected to still be there in six months. Nothing prunes it.
@@ -173,10 +161,10 @@ export interface LibraryEntry {
   readonly id: string;
   /** First meaningful line of the content. */
   readonly title: string;
-  /** ISO timestamp of the last write. */
+  /** The text after the title, flattened and cut short, so an entry can be told apart before opening it. */
+  readonly excerpt: string;
+  /** ISO timestamp of the last write. Orders the list; not displayed. */
   readonly updatedAt: string;
-  /** Character count. */
-  readonly size: number;
 }
 
 /**
@@ -207,8 +195,8 @@ export interface BootstrapState {
   readonly recovered: boolean;
   /** Theme resolved by the main process, so the first paint is already correct. */
   readonly theme: ThemeState;
-  /** Defaults per library, shown as the placeholder of each directory field. */
-  readonly defaultDirectories: Readonly<Record<LibraryId, string>>;
+  /** Default library folder, shown as the placeholder of the directory field. */
+  readonly defaultLibraryDirectory: string;
   /** Shown in the status bar, so what is running is answerable without leaving the window. */
   readonly appVersion: string;
 }
@@ -260,26 +248,21 @@ export const IpcChannel = {
   HistoryRead: 'history:read',
   /** invoke: () => number, deletes every snapshot and returns how many went */
   HistoryClear: 'history:clear',
-  /*
-   * The library channels each take a `LibraryId` first. One typed discriminator beats five more
-   * channel names: the renderer still cannot name an arbitrary destination, since the id is
-   * checked against a fixed map in the main process.
-   */
-  /** invoke: (library: LibraryId) => LibraryEntry[] */
+  /** invoke: () => LibraryEntry[] */
   LibraryList: 'library:list',
-  /** invoke: (library: LibraryId, id: string) => string */
+  /** invoke: (id: string) => string */
   LibraryRead: 'library:read',
-  /** invoke: (library: LibraryId, text: string) => LibraryEntry, named after its first line */
+  /** invoke: (text: string) => LibraryEntry, named after its first line */
   LibrarySave: 'library:save',
-  /** invoke: (library: LibraryId, id: string, text: string) => LibraryEntry */
+  /** invoke: (id: string, text: string) => LibraryEntry */
   LibraryOverwrite: 'library:overwrite',
-  /** invoke: (library: LibraryId, id: string) => void */
+  /** invoke: (id: string) => void */
   LibraryDelete: 'library:delete',
   /**
    * invoke: () => OpenedFile | null, native open dialog then read.
    *
    * Read is the only direction: there is deliberately no `file:save` channel. The app produces
-   * text to copy out, kept in the draft and in the two libraries, so an external file is an
+   * text to copy out, kept in the draft and in the library, so an external file is an
    * input to that flow. Writing to an arbitrary absolute path would need the main process to
    * track authorisations it has no other reason to hold.
    */
@@ -338,11 +321,11 @@ export interface RendererApi {
   listHistory(): Promise<HistoryEntry[]>;
   readHistory(id: string): Promise<string>;
   clearHistory(): Promise<number>;
-  listLibrary(library: LibraryId): Promise<LibraryEntry[]>;
-  readLibraryEntry(library: LibraryId, id: string): Promise<string>;
-  saveToLibrary(library: LibraryId, text: string): Promise<LibraryEntry>;
-  overwriteLibraryEntry(library: LibraryId, id: string, text: string): Promise<LibraryEntry>;
-  deleteLibraryEntry(library: LibraryId, id: string): Promise<void>;
+  listLibrary(): Promise<LibraryEntry[]>;
+  readLibraryEntry(id: string): Promise<string>;
+  saveToLibrary(text: string): Promise<LibraryEntry>;
+  overwriteLibraryEntry(id: string, text: string): Promise<LibraryEntry>;
+  deleteLibraryEntry(id: string): Promise<void>;
   openFile(): Promise<OpenedFile | null>;
   openExternalLink(url: string): Promise<void>;
   pickDirectory(current: string): Promise<string | null>;

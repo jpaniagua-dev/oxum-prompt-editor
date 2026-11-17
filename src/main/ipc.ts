@@ -5,7 +5,6 @@ import {
   type BootstrapState,
   type HistoryEntry,
   type LibraryEntry,
-  type LibraryId,
   type OpenedFile,
   type RewriteRequest,
   type RewriteProvider,
@@ -25,15 +24,14 @@ import { resolveModelForPreset, type SettingsStore } from './store/settings-stor
 export interface IpcDependencies {
   readonly drafts: DraftStore;
   readonly history: HistoryStore;
-  /** One store per library, which is also the whitelist the renderer's id is checked against. */
-  readonly libraries: Readonly<Record<LibraryId, LibraryStore>>;
+  readonly library: LibraryStore;
   /** Markdown files the user opened from anywhere on the disk, read-only. */
   readonly files: FileStore;
   readonly settings: SettingsStore;
   readonly rewrites: RewriteService;
   readonly theme: ThemeController;
   readonly recovered: () => boolean;
-  readonly defaultDirectories: () => Readonly<Record<LibraryId, string>>;
+  readonly defaultLibraryDirectory: () => string;
   readonly pickDirectory: (current: string) => Promise<string | null>;
   readonly hideWindow: () => void;
   /** The deliberate exit: flush, final snapshot, save bounds, then quit. */
@@ -57,7 +55,7 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
       presets: mergePresets(settings.customPresets),
       recovered: deps.recovered(),
       theme: deps.theme.state(),
-      defaultDirectories: deps.defaultDirectories(),
+      defaultLibraryDirectory: deps.defaultLibraryDirectory(),
       appVersion: app.getVersion(),
     };
   });
@@ -97,65 +95,38 @@ export function registerIpcHandlers(deps: IpcDependencies): void {
 
   ipcMain.handle(IpcChannel.HistoryClear, async (): Promise<number> => deps.history.clear());
 
-  /**
-   * Resolves the library the renderer named.
-   *
-   * The lookup is what keeps the discriminator safe: the renderer picks from a fixed set of
-   * stores rather than handing over a path, so an unexpected value fails here instead of
-   * reaching the filesystem.
-   */
-  const libraryOf = (value: unknown): LibraryStore => {
-    const store = value === 'notes' || value === 'prompts' ? deps.libraries[value] : undefined;
-    if (store === undefined) {
-      throw new Error(`Unknown library: ${String(value)}`);
+  ipcMain.handle(IpcChannel.LibraryList, async (): Promise<LibraryEntry[]> => deps.library.list());
+
+  ipcMain.handle(IpcChannel.LibraryRead, async (_event, id: unknown): Promise<string> => {
+    if (typeof id !== 'string') {
+      throw new Error('Document id must be a string');
     }
-    return store;
-  };
+    return deps.library.read(id);
+  });
 
-  ipcMain.handle(
-    IpcChannel.LibraryList,
-    async (_event, library: unknown): Promise<LibraryEntry[]> => libraryOf(library).list(),
-  );
-
-  ipcMain.handle(
-    IpcChannel.LibraryRead,
-    async (_event, library: unknown, id: unknown): Promise<string> => {
-      if (typeof id !== 'string') {
-        throw new Error('Document id must be a string');
-      }
-      return libraryOf(library).read(id);
-    },
-  );
-
-  ipcMain.handle(
-    IpcChannel.LibrarySave,
-    async (_event, library: unknown, text: unknown): Promise<LibraryEntry> => {
-      if (typeof text !== 'string') {
-        throw new Error('Document content must be a string');
-      }
-      return libraryOf(library).save(text);
-    },
-  );
+  ipcMain.handle(IpcChannel.LibrarySave, async (_event, text: unknown): Promise<LibraryEntry> => {
+    if (typeof text !== 'string') {
+      throw new Error('Document content must be a string');
+    }
+    return deps.library.save(text);
+  });
 
   ipcMain.handle(
     IpcChannel.LibraryOverwrite,
-    async (_event, library: unknown, id: unknown, text: unknown): Promise<LibraryEntry> => {
+    async (_event, id: unknown, text: unknown): Promise<LibraryEntry> => {
       if (typeof id !== 'string' || typeof text !== 'string') {
         throw new Error('Document id and content must be strings');
       }
-      return libraryOf(library).overwrite(id, text);
+      return deps.library.overwrite(id, text);
     },
   );
 
-  ipcMain.handle(
-    IpcChannel.LibraryDelete,
-    async (_event, library: unknown, id: unknown): Promise<void> => {
-      if (typeof id !== 'string') {
-        throw new Error('Document id must be a string');
-      }
-      await libraryOf(library).delete(id);
-    },
-  );
+  ipcMain.handle(IpcChannel.LibraryDelete, async (_event, id: unknown): Promise<void> => {
+    if (typeof id !== 'string') {
+      throw new Error('Document id must be a string');
+    }
+    await deps.library.delete(id);
+  });
 
   ipcMain.handle(IpcChannel.FileOpen, async (): Promise<OpenedFile | null> => deps.files.open());
 
@@ -274,8 +245,7 @@ function asSettingsPatch(value: unknown): Partial<AppSettings> {
   if (isCliSettings(input.codex)) patch.codex = input.codex;
   if (typeof input.defaultPresetId === 'string') patch.defaultPresetId = input.defaultPresetId;
   if (typeof input.showFormatBar === 'boolean') patch.showFormatBar = input.showFormatBar;
-  if (typeof input.notesDirectory === 'string') patch.notesDirectory = input.notesDirectory;
-  if (typeof input.promptsDirectory === 'string') patch.promptsDirectory = input.promptsDirectory;
+  if (typeof input.libraryDirectory === 'string') patch.libraryDirectory = input.libraryDirectory;
 
   return patch;
 }

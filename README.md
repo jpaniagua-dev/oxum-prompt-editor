@@ -31,8 +31,8 @@ always point at the newest build and there is no older one to pick from by mista
   Extract it anywhere and run `Oxum Prompt Editor.exe`.
 
 Uninstalling removes the program and never your text: the draft, the history, the settings and
-the default notes and prompts folders live in `%APPDATA%\oxum-prompt-editor`, which the uninstaller
-leaves alone.
+the default library folder live in `%APPDATA%\oxum-prompt-editor`, which the uninstaller leaves
+alone.
 
 Things about a downloaded build, which bite otherwise:
 
@@ -77,8 +77,7 @@ cannot fall out of date with the app the way this section can.
 | `Ctrl+O` | Open a `.md` file from disk, read-only (the current draft is archived first) |
 | `Ctrl+P` | Preview: render the Markdown in place of the editor |
 | `Ctrl+H` | History panel |
-| `Ctrl+L` | Prompt library |
-| `Ctrl+M` | Notes panel |
+| `Ctrl+L` | Library |
 | `Ctrl+,` | Settings |
 | `Ctrl+Shift+D` | Cycle the theme: light, dark, follow the system |
 | `F1` | Keyboard shortcut reference |
@@ -138,7 +137,7 @@ Four independent mechanisms, because losing a draft is the one failure this app 
 2. **A synchronous localStorage mirror** in the renderer, used at startup if the disk copy is
    empty because the main process died before its first save.
 3. **Timestamped snapshots** in `history/`, taken on copy, before a clear, before applying a
-   rewrite, before restoring or loading a note, and on quit. Capped at 200, pruned oldest-first,
+   rewrite, before restoring or loading a library entry, and on quit. Capped at 200, pruned oldest-first,
    and clearable in two clicks from the history panel.
 4. **Forced flush** on blur, on hide and before quit.
 
@@ -232,34 +231,41 @@ does not need what restructuring a prompt benefits from. An empty override falls
 provider's default. Codex's default may itself stay empty, which deliberately leaves model choice
 to the current CLI configuration.
 
-## Prompt library and notes
+## Library
 
-Two folders of saved Markdown, kept apart because they are used differently.
+One folder of saved Markdown (`Ctrl+L`), shown as cards: the title, then a three-line preview of
+what follows it, so an entry can be recognised before it is opened. `Enregistrer le brouillon`
+files the current draft, named after its first meaningful line, so `# Revue de code Angular`
+becomes `revue-de-code-angular.md`.
 
-**Prompts** (`Ctrl+L`) is the collection you reuse. `Enregistrer le prompt` files the current
-draft, and clicking an entry **copies it to the clipboard** without touching what you are writing.
-That is the whole point of a separate library: grabbing a prompt you use three times a day should
-cost you nothing.
+Each card offers two ways out:
 
-**Notes** (`Ctrl+M`) holds working documents. Clicking one **loads it into the editor**, archiving
-the current draft first and replacing it in a single transaction, so one `Ctrl+Z` brings your
-draft back. A row also offers replacing the note with the current draft.
+- **Charger**, which is also what a click on the card does, **loads it into the editor**, archiving
+  the current draft first and replacing it in a single transaction, so one `Ctrl+Z` brings your
+  draft back.
+- **Copier** puts it on the clipboard **without touching what you are writing**, and the panel
+  stays open, so grabbing a text you reuse three times a day costs nothing.
 
-Both name a file after its first meaningful line, so `# Revue de code Angular` becomes
-`revue-de-code-angular.md`, and both offer deletion behind a two-click confirmation. Names are
-per folder, so the same title can exist in each.
+Hovering a card also reveals replacing it with the current draft and deleting it, both behind a
+two-click confirmation.
 
-Neither is a second live buffer: nothing binds the editor to what you opened, and the draft
-remains the one autosaved surface. And unlike snapshots, **saved documents are never pruned**. A
-snapshot happens on its own, so discarding the oldest is housekeeping; saving was an explicit act,
-so dropping one because there are many would be the data loss this app exists to prevent.
+The library is not a second live buffer: nothing binds the editor to what you opened, and the
+draft remains the one autosaved surface. And unlike snapshots, **saved documents are never
+pruned**. A snapshot happens on its own, so discarding the oldest is housekeeping; saving was an
+explicit act, so dropping one because there are many would be the data loss this app exists to
+prevent.
 
-Both folders are configurable, since saved Markdown is worth syncing or versioning and `%APPDATA%`
-is not the place for that. Two things worth knowing: changing a folder **does not move what is
-already saved** (it stays in the old one, untouched, because a file move that fails halfway is
-exactly the risk this app refuses), and a `.md` file the app did not create appears in the list
-only if its name happens to match the generated shape, so pointing the setting at an existing
-folder does not make the app claim what is in it.
+The folder is configurable, since saved Markdown is worth syncing or versioning and `%APPDATA%` is
+not the place for that. Two things worth knowing: changing it **does not move what is already
+saved** (it stays in the old folder, untouched, because a file move that fails halfway is exactly
+the risk this app refuses), and a `.md` file the app did not create appears in the list only if its
+name happens to match the generated shape, so pointing the setting at an existing folder does not
+make the app claim what is in it.
+
+Earlier versions kept notes and prompts in two folders. The library is the former notes
+folder, and at startup the app moves the prompts into it, one file at a time: each is copied, read
+back and compared before the original is deleted, and a name already taken gets a `-2` suffix. A
+file that cannot be moved stays where it was and is retried at the next start.
 
 ## Preview and files on disk
 
@@ -274,7 +280,7 @@ Images render as labelled chips, since the renderer's CSP allows none of the sou
 image points at, and links open in the system browser instead of navigating a window that has no
 way back.
 
-`Ctrl+O` loads a file the way a note loads: the current text is archived first and replaced in a
+`Ctrl+O` loads a file the way a library entry loads: the current text is archived first and replaced in a
 single transaction, so one `Ctrl+Z` takes it back. The status bar then names where the buffer came
 from, and that is all it does. Files over 2 MB are refused, because the editor re-parses the whole
 document on every keystroke and a huge one turns the popup into a frozen window.
@@ -282,11 +288,11 @@ document on every keystroke and a huge one turns the popup into a frozen window.
 Reading is the only direction: **the app never writes to a file you opened**, and there is no save
 command. That is a scope decision, not a missing feature. What this app produces is text to paste
 somewhere else, and it already persists that text in three places it owns: the draft, autosaved
-continuously, and the notes and prompts libraries, which name their own files. Writing back would
+continuously, and the library, which names its own files. Writing back would
 instead mean holding an absolute path you picked in a dialog and later accepting it from the
 renderer, where no pattern can tell a legitimate target from `C:\Windows\System32\drivers\etc\hosts`
 and the reward for getting it wrong is an overwritten file. To keep an opened document, save it to
-the notes library.
+the library.
 
 ## Settings
 
@@ -316,8 +322,7 @@ behaviour, and it left no way back from a mistyped global shortcut.
 | `codex.modelByPresetId` | `{}` | Per-action Codex override; empty uses `codex.model` |
 | `defaultPresetId` | `structure` | |
 | `showFormatBar` | `true` | Also toggled by the `Aa` button. The formatting shortcuts work either way |
-| `notesDirectory` | `""` | Absolute path. Empty means `%APPDATA%\oxum-prompt-editor\notes`; a relative path is rejected |
-| `promptsDirectory` | `""` | Same, for the prompt library. Empty means `…\oxum-prompt-editor\prompts` |
+| `libraryDirectory` | `""` | Absolute path. Empty means `%APPDATA%\oxum-prompt-editor\notes`; a relative path is rejected. A `notesDirectory` set by an earlier version carries over |
 | `customPresets` | `[]` | Reusing a built-in `id` overrides it. Each entry takes `id`, `label`, `hint`, `systemPrompt`, an optional `kind` (`agent-prompt`, the default, or `text`) an optional one-letter `accessKey` and an optional `reviewAsDiff` |
 
 ## Theming

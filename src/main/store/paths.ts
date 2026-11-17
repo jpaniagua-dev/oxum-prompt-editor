@@ -15,11 +15,13 @@ export const AppPaths = {
   windowState: (): string => join(app.getPath('userData'), 'window-state.json'),
   historyDir: (): string => join(app.getPath('userData'), 'history'),
   /**
-   * Where each library goes unless its setting says otherwise.
+   * Where the library goes unless its setting says otherwise.
    *
-   * Only defaults: these are the stores the user may relocate, since saved Markdown is worth
-   * syncing or versioning and `%APPDATA%` is not the place for that.
+   * Only a default: the user may relocate it, since saved Markdown is worth syncing or versioning
+   * and `%APPDATA%` is not the place for that. The folder keeps the `notes` name it had before
+   * notes and prompts were merged: renaming it would move every existing note for a cosmetic gain.
    */
-  defaultNotesDir: (): string => join(app.getPath('userData'), 'notes'),
-  defaultPromptsDir: (): string => join(app.getPath('userData'), 'prompts'),
+  defaultLibraryDir: (): string => join(app.getPath('userData'), 'notes'),
+  /** Default folder of the former prompt library, emptied into the library at startup. */
+  legacyPromptsDir: (): string => join(app.getPath('userData'), 'prompts'),
 } as const;

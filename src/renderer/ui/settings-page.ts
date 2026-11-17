@@ -1,9 +1,4 @@
-import type {
-  AppSettings,
-  LibraryId,
-  RewritePreset,
-  RewriteProvider,
-} from '@shared/contracts.js';
+import type { AppSettings, RewritePreset, RewriteProvider } from '@shared/contracts.js';
 import { clearChildren, createElement, requireElement } from './dom.js';
 
 export interface SettingsPageCallbacks {
@@ -54,7 +49,7 @@ export class SettingsPage {
   show(
     settings: AppSettings,
     presets: readonly RewritePreset[],
-    defaultDirectories: Readonly<Record<LibraryId, string>>,
+    defaultLibraryDirectory: string,
   ): void {
     // A structured clone rather than a spread: the provider model maps are nested, and a shallow copy
     // would let a field edit reach the caller's object before anything was saved.
@@ -66,7 +61,7 @@ export class SettingsPage {
       this.windowSection(),
       this.editorSection(),
       this.rewriteSection(presets),
-      this.storageSection(defaultDirectories),
+      this.storageSection(defaultLibraryDirectory),
     );
     this.markDirty();
     this.open = true;
@@ -295,21 +290,15 @@ export class SettingsPage {
     return group;
   }
 
-  private storageSection(defaults: Readonly<Record<LibraryId, string>>): HTMLElement {
+  private storageSection(defaultDirectory: string): HTMLElement {
     const draft = this.require();
-    const section = createSection('Dossiers');
+    const section = createSection('Dossier');
     section.append(
       this.directoryField({
-        label: 'Dossier des notes',
-        value: draft.notesDirectory,
-        placeholder: defaults.notes,
-        apply: (path) => this.edit((d) => (d.notesDirectory = path)),
-      }),
-      this.directoryField({
-        label: 'Dossier de la bibliothèque de prompts',
-        value: draft.promptsDirectory,
-        placeholder: defaults.prompts,
-        apply: (path) => this.edit((d) => (d.promptsDirectory = path)),
+        label: 'Dossier de la bibliothèque',
+        value: draft.libraryDirectory,
+        placeholder: defaultDirectory,
+        apply: (path) => this.edit((d) => (d.libraryDirectory = path)),
       }),
     );
     return section;
